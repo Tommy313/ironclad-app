@@ -126,7 +126,7 @@ const styles = {
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export default function AIChatPanel({ isOpen, onClose }) {
+export function AIChatPanel({ isOpen, onClose }) {
   const [messages,   setMessages]   = useState([]);
   const [input,      setInput]      = useState('');
   const [isLoading,  setIsLoading]  = useState(false);
