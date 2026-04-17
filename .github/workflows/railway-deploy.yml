@@ -10,7 +10,14 @@ jobs:
     steps:
       - name: Trigger Railway deployment
         run: |
-          curl -s -X POST https://backboard.railway.app/graphql/v2 \
+          echo "Deploying commit: ${{ github.sha }}"
+          RESPONSE=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
             -H "Authorization: Bearer ${{ secrets.RAILWAY_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{\"query\":\"mutation { serviceInstanceDeploy(serviceId: \\\"02c5a93f-6fe2-4a11-958e-c8f3ca7ab553\\\", environmentId: \\\"43dfcf0d-f09a-46f2-858b-0bc7a5e7a1d0\\\", commitSha: \\\"${{ github.sha }}\\\") }\"}"
+            -d "{\"query\":\"mutation { serviceInstanceDeploy(serviceId: \\\"02c5a93f-6fe2-4a11-958e-c8f3ca7ab553\\\", environmentId: \\\"43dfcf0d-f09a-46f2-858b-0bc7a5e7a1d0\\\") }\"}")
+          echo "Railway response: $RESPONSE"
+          if echo "$RESPONSE" | grep -q '"errors"'; then
+            echo "Railway returned an error!"
+            exit 1
+          fi
+          echo "Deploy triggered successfully"
