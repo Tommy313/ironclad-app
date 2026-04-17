@@ -18,4 +18,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway up --service ironclad-app --detach
+          railway up \
+            --service 02c5a93f-6fe2-4a11-958e-c8f3ca7ab553 \
+            --environment 43dfcf0d-f09a-46f2-858b-0bc7a5e7a1d0 \
+            --detach
