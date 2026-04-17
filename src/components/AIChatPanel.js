@@ -19,12 +19,12 @@ import { askIronclad } from '@/lib/rag-client';
 
 // ─── Sample questions shown in empty state ────────────────────────────────────
 const SUGGESTED_QUESTIONS = [
-  'Which vendor has the highest labor overrun this quarter?',
+  'Which vendor has the highest labor overrun in this audit?',
   'Show me all flagged invoices for Alta Equipment.',
   'What does the Alta contract say about guaranteed hours?',
   'Which unit has the highest lifetime repair cost?',
-  'Are there any invoices where labor exceeded the contracted rate?',
-  'Summarize cost trends for SE Michigan in the last 90 days.'
+  'Are there invoices where labor exceeded the contracted rate?',
+  'Summarize audit findings across all vendors.'
 ];
 
 // ─── Inline styles (no Tailwind dependency) ───────────────────────────────────
@@ -234,10 +234,10 @@ export function AIChatPanel({ isOpen, onClose }) {
               <div style={{ fontSize: '32px' }}>🔍</div>
               <div>
                 <div style={{ fontWeight: 600, fontSize: '15px', marginBottom: '6px' }}>
-                  Ask anything about your fleet
+                  Ask anything about your customer audit
                 </div>
                 <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.5 }}>
-                  Searches your invoices, contracts, and equipment data using AI
+                  Searches your invoices, contracts, and equipment data to surface audit findings
                 </div>
               </div>
               <div style={styles.suggestionGrid}>
@@ -315,7 +315,7 @@ export function AIChatPanel({ isOpen, onClose }) {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about invoices, vendors, contracts, equipment…"
+              placeholder="Ask about invoices, flags, vendor rates, contract compliance…"
               rows={1}
               disabled={isLoading}
             />
