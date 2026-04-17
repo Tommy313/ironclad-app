@@ -39,7 +39,8 @@ const styles = {
     background: '#0f172a', color: '#f1f5f9',
     display: 'flex', flexDirection: 'column',
     boxShadow: '-4px 0 24px rgba(0,0,0,0.5)',
-    fontFamily: 'DM Sans, system-ui, sans-serif'
+    fontFamily: 'DM Sans, system-ui, sans-serif',
+    zIndex: 1001
   },
   header: {
     padding: '16px 20px', borderBottom: '1px solid #1e293b',
