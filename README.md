@@ -1,4 +1,2 @@
 # Ironclad Fleet Intelligence
-Next.js frontend for Ironclad fleet management.
-
-Deploy: Railway
+Next.js dashboard for Ferrous fleet management. Build: 1776449335
