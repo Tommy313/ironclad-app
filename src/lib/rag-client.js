@@ -19,7 +19,7 @@ export async function askIronclad(question, options = {}) {
   }
 
   const {
-    threshold = 0.60,
+    threshold = 0.30,
     topK      = 15,
     tables    = null   // e.g. ['invoices', 'agreements']
   } = options;
