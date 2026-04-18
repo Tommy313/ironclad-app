@@ -131,6 +131,12 @@ export function AIChatPanel({ isOpen, onClose }) {
   const [messages,   setMessages]   = useState([]);
   const [input,      setInput]      = useState('');
   const [isLoading,  setIsLoading]  = useState(false);
+
+  const clearConversation = useCallback(() => {
+    setMessages([]);
+    setInput('');
+    setTimeout(() => textareaRef.current?.focus(), 100);
+  }, []);
   const messagesEndRef = useRef(null);
   const textareaRef    = useRef(null);
 
@@ -219,12 +225,30 @@ export function AIChatPanel({ isOpen, onClose }) {
                 Ironclad AI
               </div>
               <div style={{ fontSize: '11px', color: '#64748b' }}>
-                Fleet Intelligence Assistant
+                Audit Intelligence Assistant
               </div>
             </div>
             <span style={styles.badge}>RAG</span>
           </div>
-          <button style={styles.closeBtn} onClick={onClose}>✕</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {messages.length > 0 && !isLoading && (
+              <button
+                style={{
+                  background: 'transparent', border: '1px solid #334155',
+                  borderRadius: '6px', color: '#64748b', cursor: 'pointer',
+                  fontSize: '11px', padding: '4px 10px', whiteSpace: 'nowrap',
+                  transition: 'border-color 0.2s, color 0.2s'
+                }}
+                onClick={clearConversation}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#94a3b8'; e.currentTarget.style.color = '#cbd5e1'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#64748b'; }}
+                title="Start a new conversation"
+              >
+                ↺ New
+              </button>
+            )}
+            <button style={styles.closeBtn} onClick={onClose}>✕</button>
+          </div>
         </div>
 
         {/* Messages */}
