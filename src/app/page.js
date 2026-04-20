@@ -11,7 +11,7 @@ import { AIChatPanel, AIChatButton } from "../components/AIChatPanel";
 import {
   isSupabaseConfigured,
   getClients, addClient,
-  getAllClientInvoices, saveClientInvoice,
+  getAllClientInvoices, saveClientInvoice, saveNewClientInvoice,
   getAllClientTransactions, saveClientTransaction,
   bulkSeedInvoices, bulkSeedTransactions
 } from "../lib/supabase";
@@ -554,6 +554,21 @@ export default function App() {
     });
   };
 
+  // Batch import — NEVER overwrites existing records. Skips any ID already in DB.
+  const handleBatchIngest = async (record) => {
+    if (usingSupabase) {
+      const result = await saveNewClientInvoice(record);
+      if (result !== 'saved') return; // skipped (duplicate) — don't update local state
+    }
+    setInvoices(prev => {
+      if (prev.some(i => i.id === record.id)) return prev; // already in local state
+      const updated = [record, ...prev];
+      if (!usingSupabase) store.set(STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
+      setSC(updated.length);
+      return updated;
+    });
+  };
+
   // Client-filtered data
   const filteredInvoices = activeClient === "all" ? invoices : invoices.filter(i => (i.client || "Ferrous") === activeClient);
   const filteredTxns = activeClient === "all" ? txns : txns.filter(t => (t.client || "Ferrous") === activeClient);
@@ -649,7 +664,7 @@ export default function App() {
           knownEquipment={invoices.map(i => ({ id: i.unitId, make: i.equipment.split(" ")[0], model: i.equipment.split(" ").slice(1).join(" ") }))}
           activeClient={activeClient !== "all" ? activeClient : "Ferrous"}
           existingIds={invoices.map(i => i.id)}
-          onSave={handleIngest}
+          onSave={handleBatchIngest}
           onClose={() => setShowBatchIngest(false)}
         />
       </div>

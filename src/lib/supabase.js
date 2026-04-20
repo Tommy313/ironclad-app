@@ -182,6 +182,7 @@ export async function getAllClientInvoices() {
   return data.map(fromDbInvoice);
 }
 
+// saveClientInvoice — used by single IngestPanel (allows editing/overwrite of existing)
 export async function saveClientInvoice(invoice) {
   if (!supabase) return null;
   const row = toDbInvoice(invoice);
@@ -192,6 +193,23 @@ export async function saveClientInvoice(invoice) {
     .single();
   if (error) { console.error('[supabase] saveClientInvoice:', error.message); return null; }
   return data?.id;
+}
+
+// saveNewClientInvoice — used by batch import (never overwrites existing records)
+// Returns 'saved', 'skipped' (already exists), or null (error)
+export async function saveNewClientInvoice(invoice) {
+  if (!supabase) return null;
+  const row = toDbInvoice(invoice);
+  const { data, error } = await supabase
+    .from('invoices')
+    .upsert(row, { onConflict: 'id', ignoreDuplicates: true })
+    .select('id')
+    .single();
+  if (error && error.code !== 'PGRST116') {
+    console.error('[supabase] saveNewClientInvoice:', error.message);
+    return null;
+  }
+  return data?.id ? 'saved' : 'skipped';
 }
 
 
