@@ -235,15 +235,16 @@ export const FLAG_META = {
   "LIFECYCLE-DATA":{c:"#7c3aed",l:"Lifecycle Data"},
   // ── Engine-generated flags (set automatically by runAuditFlags, prefix ENG-) ─
   // These are replaced on every re-audit. Manual flags above are never touched.
-  "ENG-HIGH-HOURS":     {c:"#dc2626",l:"⚡ High Hours"},
-  "ENG-HIGH-COST":      {c:"#ea580c",l:"⚡ High Cost"},
-  "ENG-RATE-VIOLATION": {c:"#dc2626",l:"⚡ Rate Violation"},
-  "ENG-TRAVEL-BILLED":  {c:"#d97706",l:"⚡ Travel Billed"},
-  "ENG-REPEAT-REPAIR":  {c:"#7c3aed",l:"⚡ Repeat Repair"},
-  "ENG-MATH-ERROR":     {c:"#dc2626",l:"⚡ Math Error"},
-  "ENG-FEE-VIOLATION":  {c:"#d97706",l:"⚡ Fee Violation"},
-  "ENG-RATE-OUTLIER":   {c:"#ea580c",l:"⚡ Rate Outlier"},
-  "ENG-INCOMPLETE":     {c:"#6b7280",l:"⚡ Incomplete"},
+  "ENG-HIGH-HOURS":       {c:"#dc2626",l:"⚡ High Hours"},
+  "ENG-HIGH-COST":        {c:"#ea580c",l:"⚡ High Cost"},
+  "ENG-RATE-VIOLATION":   {c:"#dc2626",l:"⚡ Rate Violation"},
+  "ENG-TRAVEL-BILLED":    {c:"#d97706",l:"⚡ Travel Billed"},
+  "ENG-REPEAT-REPAIR":    {c:"#7c3aed",l:"⚡ Repeat Repair"},
+  "ENG-MATH-ERROR":       {c:"#dc2626",l:"⚡ Math Error"},
+  "ENG-FEE-VIOLATION":    {c:"#d97706",l:"⚡ Fee Violation"},
+  "ENG-RATE-OUTLIER":     {c:"#ea580c",l:"⚡ Rate Outlier"},
+  "ENG-INCOMPLETE":       {c:"#6b7280",l:"⚡ Incomplete"},
+  "ENG-UNKNOWN-VENDOR":   {c:"#dc2626",l:"⚡ Unknown Vendor"},
 };
 
 export const TXN_TAG_META = {
@@ -274,7 +275,9 @@ const VENDOR_RATES = {
   "Apex Shear Blades":                 { rate:  95, confidence: "estimated", note: "Estimated — Apex attachment specialist" },
 };
 
-export function calc(inv) {
+// vendorRegistry is the live Supabase vendors array (passed in from page state).
+// When provided, it takes precedence over the hardcoded VENDOR_RATES table.
+export function calc(inv, vendorRegistry = []) {
   const total = inv.parts + inv.labor + inv.misc;
   const allRes = inv.techs.length > 0 && inv.techs.every(t => t === RESIDENT_TECH);
   const allNon = inv.techs.length > 0 && inv.techs.every(t => t !== RESIDENT_TECH);
@@ -288,17 +291,27 @@ export function calc(inv) {
     rateNote = `${RESIDENT_TECH} @ $${rate}/hr (contract) | ${impliedHrs.toFixed(1)}h total, ${trH}h travel, ${wrH.toFixed(1)}h wrench`;
   }
 
-  // ── Tier 2: Vendor rate table fallback — works for all imports ─────────────
+  // ── Tier 2: Live vendor registry (Supabase) → hardcoded VENDOR_RATES fallback ──
   // Fires when Tier 1 didn't match AND labor > 0 (skip parts-only invoices)
   if (rate === null && inv.labor > 0) {
-    const vr = VENDOR_RATES[inv.vendor];
-    if (vr) {
-      rate = vr.rate;
+    // 2a: Check live registry first
+    const regEntry = vendorRegistry.find(v => v.name === inv.vendor);
+    if (regEntry && regEntry.labor_rate) {
+      rate = parseFloat(regEntry.labor_rate);
       impliedHrs = inv.labor / rate;
-      rateConfidence = vr.confidence;
-      rateNote = `${vr.note} | ${impliedHrs.toFixed(1)}h implied`;
-    } else if (inv.vendor) {
-      rateNote = `${inv.vendor} — rate not in table`;
+      rateConfidence = regEntry.rate_confidence || "estimated";
+      rateNote = `${regEntry.rate_note || regEntry.name} | ${impliedHrs.toFixed(1)}h implied`;
+    } else {
+      // 2b: Hardcoded VENDOR_RATES table fallback
+      const vr = VENDOR_RATES[inv.vendor];
+      if (vr) {
+        rate = vr.rate;
+        impliedHrs = inv.labor / rate;
+        rateConfidence = vr.confidence;
+        rateNote = `${vr.note} | ${impliedHrs.toFixed(1)}h implied`;
+      } else if (inv.vendor) {
+        rateNote = `${inv.vendor} — rate not in registry`;
+      }
     }
   } else if (rate === null) {
     // Explain why rate is null for Alta-specific edge cases
@@ -428,9 +441,24 @@ const AUDIT_FLAG_MAP = {
  * - ENG- flags are always replaced with the latest engine findings.
  * - flagNotes is populated with a summary of all engine findings.
  */
-export function runAuditFlags(invoice, allInvoices = []) {
-  const calcResult  = calc(invoice);
-  const bl          = buildBaselines(allInvoices);
+export function runAuditFlags(invoice, allInvoices = [], vendorRegistry = []) {
+  // Guard: if registry has data and vendor isn't in it, block processing.
+  // Only fires when registry is populated — falls back gracefully before first Supabase sync.
+  if (vendorRegistry.length > 0 && invoice.vendor) {
+    const known = vendorRegistry.find(v => v.name === invoice.vendor);
+    if (!known) {
+      const manualFlags = (invoice.flags || []).filter(f => !f.startsWith("ENG-"));
+      const existingNotes = (invoice.flagNotes || "").replace(/\s*\[ENG\].*$/s, "").trim();
+      return {
+        ...invoice,
+        flags: [...new Set([...manualFlags, "ENG-UNKNOWN-VENDOR"])],
+        flagNotes: [existingNotes, `[ENG] [Unknown Vendor] "${invoice.vendor}" is not in the vendor registry — add this vendor before auditing.`].filter(Boolean).join(" ")
+      };
+    }
+  }
+
+  const calcResult  = calc(invoice, vendorRegistry);
+  const bl          = buildBaselines(allInvoices, undefined, vendorRegistry);
   const checks      = audit(calcResult, bl);
 
   // Map FLAG-level findings to ENG- codes
@@ -454,8 +482,8 @@ export function runAuditFlags(invoice, allInvoices = []) {
   return { ...invoice, flags, flagNotes };
 }
 
-export function buildBaselines(invoices, region) {
-  const c = invoices.map(calc);
+export function buildBaselines(invoices, region, vendorRegistry = []) {
+  const c = invoices.map(inv => calc(inv, vendorRegistry));
   const rc = region ? c.filter(i => (i.region || "SE-MI") === region) : c;
   const st = arr => { if (arr.length < 3) return null; const m = arr.reduce((s, v) => s + v, 0) / arr.length; const sd = Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length); return { m, sd, min: Math.min(...arr), max: Math.max(...arr), n: arr.length }; };
   const vr = {}, cc = {};

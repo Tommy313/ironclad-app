@@ -7,6 +7,7 @@ import { AGREEMENTS, RESIDENT_TECH, SEED_INVOICES, SEED_TRANSACTIONS, LIFECYCLE_
   f$, f$2, fH, fP } from "../lib/engine";
 import IngestPanel from "../components/IngestPanel";
 import BatchIngestPanel from "../components/BatchIngestPanel";
+import VendorPanel from "../components/VendorPanel";
 import { AIChatPanel, AIChatButton } from "../components/AIChatPanel";
 import {
   isSupabaseConfigured,
@@ -14,7 +15,8 @@ import {
   getAllClientInvoices, saveClientInvoice, saveNewClientInvoice,
   deleteAllClientInvoices,
   getAllClientTransactions, saveClientTransaction,
-  bulkSeedInvoices, bulkSeedTransactions
+  bulkSeedInvoices, bulkSeedTransactions,
+  getVendors, saveVendor
 } from "../lib/supabase";
 
 const S = { bg: "#f0f1f5", card: "#ffffff", border: "#d5d8e0", accent: "#4a7fd4", text: "#3a3f4b", dim: "#8b919e", bright: "#1d2028", shadow: "0 1px 3px rgba(0,0,0,0.06)" };
@@ -436,7 +438,7 @@ function DataTab({ data, txns, onExport, onReset, count, txnCount }) {
   </div>;
 }
 
-const TABS = ["Dashboard", "Invoices", "Equipment", "Transactions", "Agreements"];
+const TABS = ["Dashboard", "Invoices", "Equipment", "Transactions", "Vendors", "Agreements"];
 
 // localStorage fallback adapter (used when Supabase is not yet configured)
 const store = {
@@ -462,6 +464,7 @@ export default function App() {
   const isBenchmarkMode = BENCHMARK_CLIENTS.includes(activeClient);
   const [showClientAdd, setShowClientAdd] = useState(false);
   const [newClientName, setNewClientName] = useState("");
+  const [vendors, setVendors] = useState([]);
   const [showIngest,      setShowIngest]      = useState(false);
   const [showBatchIngest, setShowBatchIngest] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -477,11 +480,13 @@ export default function App() {
       if (sbReady) {
         // ── Supabase path ───────────────────────────────────────────────────
         try {
-          const [dbInvoices, dbTxns, dbClients] = await Promise.all([
+          const [dbInvoices, dbTxns, dbClients, dbVendors] = await Promise.all([
             getAllClientInvoices(),
             getAllClientTransactions(),
-            getClients()
+            getClients(),
+            getVendors()
           ]);
+          if (dbVendors && dbVendors.length > 0) setVendors(dbVendors);
 
           if (dbInvoices && dbInvoices.length > 0) {
             setInvoices(dbInvoices); setSC(dbInvoices.length);
@@ -574,9 +579,17 @@ export default function App() {
     setTC(SEED_TRANSACTIONS.length);
   };
 
+  const handleSaveVendor = async (vendor) => {
+    if (usingSupabase) await saveVendor(vendor);
+    setVendors(prev => {
+      const idx = prev.findIndex(v => v.id === vendor.id);
+      return idx >= 0 ? prev.map((v, i) => i === idx ? vendor : v) : [...prev, vendor];
+    });
+  };
+
   const handleIngest = async (record) => {
     // Run full audit engine before saving — flags written once, stored permanently
-    const audited = runAuditFlags(record, invoices);
+    const audited = runAuditFlags(record, invoices, vendors);
     if (usingSupabase) {
       await saveClientInvoice(audited);
     }
@@ -594,7 +607,7 @@ export default function App() {
   // Batch import — NEVER overwrites existing records. Skips any ID already in DB.
   const handleBatchIngest = async (record) => {
     // Run full audit engine before saving — flags written once, stored permanently
-    const audited = runAuditFlags(record, invoices);
+    const audited = runAuditFlags(record, invoices, vendors);
     if (usingSupabase) {
       const result = await saveNewClientInvoice(audited);
       if (result !== 'saved') return;
@@ -616,7 +629,7 @@ export default function App() {
     const count = filteredInvoices.length;
     if (!confirm(`Re-audit all ${count} invoices with the current engine?\n\nThis updates stored flags in Supabase. Manual flags are preserved. This may take up to ${Math.round(count * 0.3)}s.`)) return;
 
-    const reaudited = filteredInvoices.map(inv => runAuditFlags(inv, filteredInvoices));
+    const reaudited = filteredInvoices.map(inv => runAuditFlags(inv, filteredInvoices, vendors));
 
     if (usingSupabase) {
       for (const inv of reaudited) {
@@ -716,13 +729,14 @@ export default function App() {
         tab === "Invoices"      ? <InvoiceTable data={filteredInvoices} /> :
         tab === "Equipment"     ? <EquipmentView data={filteredInvoices} /> :
         tab === "Transactions"  ? <TransactionsView txns={filteredTxns} /> :
+        tab === "Vendors"       ? <VendorPanel vendors={vendors} onSave={handleSaveVendor} /> :
                                   <AgreementView />}
     </div>
     {showIngest && <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div onClick={() => setShowIngest(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.2)" }} />
       <div style={{ position: "relative", width: "100%", maxWidth: 720, zIndex: 201 }}>
         <IngestPanel
-          knownVendors={[...new Set(invoices.map(i => i.vendor))]}
+          knownVendors={vendors.length > 0 ? vendors.map(v => v.name) : [...new Set(invoices.map(i => i.vendor))]}
           knownEquipment={invoices.map(i => ({ id: i.unitId, make: i.equipment.split(" ")[0], model: i.equipment.split(" ").slice(1).join(" ") }))}
           activeClient={activeClient !== "all" ? activeClient : "Ferrous"}
           existingIds={invoices.map(i => i.id)}
@@ -735,7 +749,7 @@ export default function App() {
       <div onClick={() => setShowBatchIngest(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.2)" }} />
       <div style={{ position: "relative", width: "100%", maxWidth: 780, zIndex: 201 }}>
         <BatchIngestPanel
-          knownVendors={[...new Set(invoices.map(i => i.vendor))]}
+          knownVendors={vendors.length > 0 ? vendors.map(v => v.name) : [...new Set(invoices.map(i => i.vendor))]}
           knownEquipment={invoices.map(i => ({ id: i.unitId, make: i.equipment.split(" ")[0], model: i.equipment.split(" ").slice(1).join(" ") }))}
           activeClient={activeClient !== "all" ? activeClient : "Ferrous"}
           existingIds={invoices.map(i => i.id)}

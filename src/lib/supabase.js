@@ -262,6 +262,33 @@ export async function deleteAllClientInvoices(clientName) {
 }
 
 
+// ─── Vendor Registry ─────────────────────────────────────────────────────────
+
+export async function getVendors() {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('vendors')
+    .select('*')
+    .order('name', { ascending: true });
+  if (error) { console.error('[supabase] getVendors:', error.message); return []; }
+  return data || [];
+}
+
+// Save (upsert) a vendor record. id is derived from slugified name if not provided.
+export async function saveVendor(vendor) {
+  if (!supabase) return null;
+  const id = vendor.id || vendor.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const row = { ...vendor, id };
+  const { data, error } = await supabase
+    .from('vendors')
+    .upsert(row, { onConflict: 'id', ignoreDuplicates: false })
+    .select('id')
+    .single();
+  if (error) { console.error('[supabase] saveVendor:', error.message); return null; }
+  return data?.id;
+}
+
+
 // ─── Bulk seed (one-time migration of localStorage data) ─────────────────────
 
 export async function bulkSeedInvoices(invoices) {
