@@ -253,12 +253,12 @@ export async function saveClientTransaction(txn) {
 
 export async function deleteAllClientInvoices(clientName) {
   if (!supabase) return false;
-  const { error } = await supabase
-    .from('invoices')
-    .delete()
-    .eq('client', clientName);
-  if (error) { console.error('[supabase] deleteAllClientInvoices:', error.message); return false; }
-  return true;
+  // Delete rows matching the client name OR where client is null (untagged rows)
+  const { error: e1 } = await supabase.from('invoices').delete().eq('client', clientName);
+  const { error: e2 } = await supabase.from('invoices').delete().is('client', null);
+  if (e1) console.error('[supabase] deleteAllClientInvoices (named):', e1.message);
+  if (e2) console.error('[supabase] deleteAllClientInvoices (null):', e2.message);
+  return !e1 && !e2;
 }
 
 
