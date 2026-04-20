@@ -209,35 +209,61 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
           knownEquipment || []
         );
 
-        const ext = result.visionFields
-          ? result.visionFields
-          : extractFields(result.fullText, knownVendors, knownEquipment);
+        // ── Multi-invoice PDF (compiled dump) ──────────────────────────────────
+        if (result.multiInvoice) {
+          let fileSaved = 0, fileSkipped = 0;
 
-        const record = buildRecord(ext, item, activeClient, i);
+          for (let j = 0; j < result.multiInvoice.length; j++) {
+            const inv    = result.multiInvoice[j];
+            const record = buildRecord(inv.visionFields, item, activeClient, `${i}-${j}`);
 
-        // Duplicate check (against DB and this session)
-        if (savedIdsRef.current.has(record.id)) {
+            if (savedIdsRef.current.has(record.id)) {
+              fileSkipped++;
+              skipped++;
+            } else {
+              onSave(record);
+              savedIdsRef.current.add(record.id);
+              ingestToRAG(record);
+              fileSaved++;
+              saved++;
+            }
+
+            // Update progress after each sub-invoice
+            setStats({ saved, skipped, failed });
+          }
+
+          const label = `${fileSaved} invoices${fileSkipped > 0 ? ` (${fileSkipped} dupes)` : ""}`;
           setQueue(prev => prev.map((it, idx) =>
-            idx === i ? { ...it, status: "skipped", invoiceId: record.id, vendor: record.vendor, error: "Duplicate ID" } : it
+            idx === i ? { ...it, status: "done", invoiceId: label, vendor: result.multiInvoice[0]?.visionFields?.vendor?.value || "" } : it
           ));
-          skipped++;
+
+        } else {
+          // ── Single invoice ────────────────────────────────────────────────────
+          const ext = result.visionFields
+            ? result.visionFields
+            : extractFields(result.fullText, knownVendors, knownEquipment);
+
+          const record = buildRecord(ext, item, activeClient, i);
+
+          if (savedIdsRef.current.has(record.id)) {
+            setQueue(prev => prev.map((it, idx) =>
+              idx === i ? { ...it, status: "skipped", invoiceId: record.id, vendor: record.vendor, error: "Duplicate ID" } : it
+            ));
+            skipped++;
+          } else {
+            onSave(record);
+            savedIdsRef.current.add(record.id);
+            ingestToRAG(record);
+
+            setQueue(prev => prev.map((it, idx) =>
+              idx === i ? { ...it, status: "done", invoiceId: record.id, vendor: record.vendor } : it
+            ));
+            saved++;
+          }
           setStats({ saved, skipped, failed });
-          continue;
         }
 
-        // Save + embed
-        onSave(record);
-        savedIdsRef.current.add(record.id);
-        ingestToRAG(record); // fire-and-forget
-
-        // Update item to done
-        setQueue(prev => prev.map((it, idx) =>
-          idx === i ? { ...it, status: "done", invoiceId: record.id, vendor: record.vendor } : it
-        ));
-        saved++;
-        setStats({ saved, skipped, failed });
-
-        // Update rolling avg
+        // Update rolling avg (per-file, not per sub-invoice)
         const elapsed = (Date.now() - t0) / 1000;
         durations.push(elapsed);
         setAvgSecs(durations.reduce((a, b) => a + b, 0) / durations.length);
@@ -275,7 +301,7 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
           <div style={{ fontSize: 10, color: S.dim }}>
             {phase === "select"  && "Drop a folder or select multiple PDFs — processed one by one via AI Vision"}
             {phase === "ready"   && `${queue.length} PDF${queue.length !== 1 ? "s" : ""} queued · ~${fmt(queue.length * avgSecs)} estimated`}
-            {phase === "running" && `Processing ${processed + 1} of ${queue.length} · ${pct}% complete · ~${fmt(etaSecs)} remaining`}
+            {phase === "running" && `Processing file ${processed + 1} of ${queue.length} · ${pct}% complete · ~${fmt(etaSecs)} remaining · ${stats.saved} invoices saved`}
             {phase === "done"    && `Complete — ${stats.saved} saved, ${stats.skipped} skipped, ${stats.failed} failed in ${fmt(elapsed)}`}
             {activeClient && activeClient !== "all" && <span style={{ marginLeft: 8, color: S.accent, fontWeight: 600 }}>→ {activeClient}</span>}
           </div>

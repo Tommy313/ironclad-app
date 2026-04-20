@@ -7,33 +7,145 @@
 
 const RAG_URL = process.env.NEXT_PUBLIC_RAILWAY_URL;
 
-// ─── Render PDF pages to JPEG base64 images ───────────────────────────────────
-// Uses pdfjs canvas rendering. scale=2 gives 2x resolution for clearer text.
-async function renderPDFToImages(pdf, scale = 2.0) {
+// ─── Render a specific page range to JPEG base64 images ───────────────────────
+// startPage and endPage are 1-based. Caps at 4 images (Vision limit per call).
+async function renderPDFPageRange(pdf, startPage, endPage, scale = 2.0) {
   const images = [];
-  const maxPages = Math.min(pdf.numPages, 4); // Vision supports up to 4 pages
+  const last = Math.min(endPage, startPage + 3); // max 4 pages per Vision call
 
-  for (let i = 1; i <= maxPages; i++) {
-    const page  = await pdf.getPage(i);
+  for (let i = startPage; i <= last; i++) {
+    const page     = await pdf.getPage(i);
     const viewport = page.getViewport({ scale });
 
-    const canvas = document.createElement('canvas');
-    canvas.width  = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
+    const canvas   = document.createElement('canvas');
+    canvas.width   = viewport.width;
+    canvas.height  = viewport.height;
+    const ctx      = canvas.getContext('2d');
 
     await page.render({ canvasContext: ctx, viewport }).promise;
 
-    // JPEG at 92% quality — smaller payload than PNG, sufficient for Vision
     const base64 = canvas.toDataURL('image/jpeg', 0.92).split(',')[1];
     images.push(base64);
 
-    // Clean up
-    canvas.width = 0;
+    canvas.width  = 0;
     canvas.height = 0;
   }
 
   return images;
+}
+
+// ─── Convenience wrapper: render first N pages ────────────────────────────────
+async function renderPDFToImages(pdf, scale = 2.0) {
+  return renderPDFPageRange(pdf, 1, Math.min(pdf.numPages, 4), scale);
+}
+
+// ─── Invoice boundary detection via text extraction ───────────────────────────
+// Scans each page for "1 OF X" or "PAGE: 1" patterns that mark the first page
+// of a new invoice in a compiled/concatenated PDF.
+// Returns array of {start, end} page ranges, or null if detection fails.
+async function detectInvoiceBoundaries(pdf) {
+  const boundaries = [1]; // page 1 always starts the first invoice
+  let totalChars = 0;
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page    = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const text    = content.items.map(item => item.str).join(' ');
+    totalChars   += text.length;
+
+    // New invoice start: "1 OF 2", "1 OF 3", "PAGE: 1 OF" etc.
+    if (i > 1 && /\b1\s+OF\s+\d+\b/i.test(text)) {
+      boundaries.push(i);
+    }
+  }
+
+  const avgCharsPerPage = totalChars / pdf.numPages;
+
+  // If average text is too sparse, the PDF is image-only — text detection unreliable
+  if (avgCharsPerPage < 30) {
+    console.log(`[ocr] Text too sparse (${avgCharsPerPage.toFixed(0)} chars/page) — using fixed chunking`);
+    return null;
+  }
+
+  if (boundaries.length <= 1) return null; // no additional boundaries found
+
+  return boundaries.map((start, idx) => ({
+    start,
+    end: idx < boundaries.length - 1 ? boundaries[idx + 1] - 1 : pdf.numPages,
+  }));
+}
+
+// ─── Fixed-size chunking fallback ─────────────────────────────────────────────
+// Used when text extraction can't detect boundaries (pure scanned PDFs).
+// Assumes PAGES_PER_INVOICE pages per invoice (Michigan CAT = 2 pages).
+function buildFixedChunks(totalPages, pagesPerInvoice = 2) {
+  const ranges = [];
+  for (let start = 1; start <= totalPages; start += pagesPerInvoice) {
+    ranges.push({ start, end: Math.min(start + pagesPerInvoice - 1, totalPages) });
+  }
+  return ranges;
+}
+
+// ─── Multi-invoice extraction ─────────────────────────────────────────────────
+// For PDFs containing multiple concatenated invoices.
+// Returns array of {visionFields, lineItems, visionConfidence} objects.
+async function extractMultiInvoicePDF(pdf, knownVendors) {
+  console.log(`[ocr] Multi-invoice mode: ${pdf.numPages} pages`);
+
+  // Try text-based boundary detection first
+  let ranges = await detectInvoiceBoundaries(pdf);
+
+  // Fall back to fixed 2-page chunks for image-only PDFs
+  if (!ranges) {
+    ranges = buildFixedChunks(pdf.numPages, 2);
+    console.log(`[ocr] Fixed chunking: ${ranges.length} chunks of 2 pages`);
+  } else {
+    console.log(`[ocr] Text boundaries detected: ${ranges.length} invoices`);
+  }
+
+  const results    = [];
+  const seenIds    = new Set();
+
+  for (let i = 0; i < ranges.length; i++) {
+    const { start, end } = ranges[i];
+    try {
+      const pages = await renderPDFPageRange(pdf, start, end);
+
+      const resp = await fetch(`${RAG_URL}/extract/invoice`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ pages, knownVendors }),
+      });
+
+      if (!resp.ok) {
+        console.warn(`[ocr] Chunk ${start}-${end}: server returned ${resp.status}`);
+        continue;
+      }
+
+      const data = await resp.json();
+      if (!data.success || !data.fields) continue;
+
+      // Deduplicate by invoice number (catches boundary overlaps)
+      const invId = data.fields.invoiceNumber?.value;
+      if (invId && seenIds.has(invId)) {
+        console.log(`[ocr] Skipping duplicate invoice ${invId}`);
+        continue;
+      }
+      if (invId) seenIds.add(invId);
+
+      results.push({
+        visionFields:     data.fields,
+        lineItems:        data.lineItems        || [],
+        visionConfidence: data.confidence,
+      });
+
+      console.log(`[ocr] Chunk ${start}-${end}: extracted invoice ${invId || '(no ID)'}`);
+    } catch (err) {
+      console.warn(`[ocr] Chunk ${start}-${end} failed:`, err.message);
+    }
+  }
+
+  return results;
 }
 
 
@@ -56,6 +168,19 @@ export async function extractTextFromPDF(file, knownVendors = [], knownEquipment
   // ── Path 1: GPT-4o Vision (primary) ─────────────────────────────────────────
   if (RAG_URL) {
     try {
+
+      // Multi-invoice mode: PDFs > 5 pages are likely compiled invoice dumps
+      if (pdf.numPages > 5) {
+        const invoices = await extractMultiInvoicePDF(pdf, knownVendors);
+        return {
+          pageCount:    pdf.numPages,
+          fullText:     `Multi-invoice PDF: ${invoices.length} invoices extracted from ${pdf.numPages} pages.`,
+          pages:        [],
+          multiInvoice: invoices,   // array — BatchIngestPanel saves each one separately
+        };
+      }
+
+      // Single invoice (≤ 5 pages)
       const pages = await renderPDFToImages(pdf);
 
       const resp = await fetch(`${RAG_URL}/extract/invoice`, {
