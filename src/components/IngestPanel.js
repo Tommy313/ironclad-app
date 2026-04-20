@@ -3,6 +3,48 @@ import { useState } from "react";
 import { extractTextFromPDF, extractFields, validateExtraction } from "../lib/ocr";
 import { CATEGORIES } from "../lib/engine";
 
+const RAG_URL = process.env.NEXT_PUBLIC_RAILWAY_URL;
+
+// Map frontend invoice format → RAG backend format and POST to /ingest/invoice
+async function ingestToRAG(record) {
+  if (!RAG_URL) return; // RAG not configured, skip silently
+  try {
+    const payload = {
+      id:               record.id,
+      date:             record.date,
+      work_dates:       record.workDates       || null,
+      equipment:        record.equipment       || null,
+      serial_number:    record.sn              || null,
+      unit_id:          record.unitId          || null,
+      meter_hours:      record.meter           ? Math.round(record.meter) : null,
+      site:             record.site            || null,
+      region:           record.region          || null,
+      category:         record.category        || null,
+      description:      record.description     || null,
+      vendor:           record.vendor          || null,
+      agreement_status: record.agreement       || 'none',
+      techs:            record.techs           || [],
+      visits:           record.visits          || 1,
+      parts_total:      parseFloat(record.parts)  || 0,
+      labor_total:      parseFloat(record.labor)  || 0,
+      misc_total:       parseFloat(record.misc)   || 0,
+      flags:            record.flags           || [],
+      flag_notes:       record.flagNotes       || null,
+      expected_hours_low:  record.expectedHoursLow  || null,
+      expected_hours_high: record.expectedHoursHigh || null,
+      vendor_type:      record.vendorType      || null,
+      client:           record.client          || 'Ferrous',
+    };
+    await fetch(`${RAG_URL}/ingest/invoice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } catch (err) {
+    console.warn('[IngestPanel] RAG auto-embed failed (non-blocking):', err.message);
+  }
+}
+
 const S = { bg: "#f0f1f5", card: "#ffffff", border: "#d5d8e0", accent: "#4a7fd4", text: "#3a3f4b", dim: "#8b919e", bright: "#1d2028", shadow: "0 1px 3px rgba(0,0,0,0.06)", green: "#22813D", red: "#dc2626", yellow: "#d97706" };
 const inp = { width: "100%", boxSizing: "border-box", background: S.bg, border: `1px solid ${S.border}`, borderRadius: 10, color: S.bright, fontSize: 13, padding: "8px 12px", outline: "none", fontFamily: "inherit" };
 
@@ -94,6 +136,8 @@ export default function IngestPanel({ knownVendors, knownEquipment, activeClient
       extractionConfidence: fields ? Object.values(fields).filter(f => f.confidence === "HIGH").length + "/" + Object.values(fields).filter(f => f.confidence).length : "manual"
     };
     onSave(record);
+    // Auto-embed into RAG backend (non-blocking — fires and forgets)
+    ingestToRAG(record);
     setStage("saved");
   };
 

@@ -7,6 +7,13 @@ import { AGREEMENTS, RESIDENT_TECH, SEED_INVOICES, SEED_TRANSACTIONS, LIFECYCLE_
   f$, f$2, fH, fP } from "../lib/engine";
 import IngestPanel from "../components/IngestPanel";
 import { AIChatPanel, AIChatButton } from "../components/AIChatPanel";
+import {
+  isSupabaseConfigured,
+  getClients, addClient,
+  getAllClientInvoices, saveClientInvoice,
+  getAllClientTransactions, saveClientTransaction,
+  bulkSeedInvoices, bulkSeedTransactions
+} from "../lib/supabase";
 
 const S = { bg: "#f0f1f5", card: "#ffffff", border: "#d5d8e0", accent: "#4a7fd4", text: "#3a3f4b", dim: "#8b919e", bright: "#1d2028", shadow: "0 1px 3px rgba(0,0,0,0.06)" };
 function Badge({ flag }) { const m = FLAG_META[flag] || { c: "#6b7280", l: flag }; return <span style={{ display: "inline-block", padding: "2px 9px", borderRadius: 12, fontSize: 9, fontWeight: 700, marginRight: 3, marginBottom: 2, background: m.c + "15", color: m.c, border: `1px solid ${m.c}30` }}>{m.l}</span>; }
@@ -416,9 +423,9 @@ function DataTab({ data, txns, onExport, onReset, count, txnCount }) {
   </div>;
 }
 
-const TABS = ["Dashboard", "Invoices", "Equipment", "Transactions", "Agreements", "Data"];
+const TABS = ["Dashboard", "Invoices", "Equipment", "Transactions", "Agreements"];
 
-// Storage adapter — localStorage for Next.js (replaces store from artifact)
+// localStorage fallback adapter (used when Supabase is not yet configured)
 const store = {
   async get(key) { try { const v = localStorage.getItem(key); return v ? { value: v } : null; } catch { return null; } },
   async set(key, val) { try { localStorage.setItem(key, val); return true; } catch { return false; } }
@@ -437,34 +444,78 @@ export default function App() {
   const [newClientName, setNewClientName] = useState("");
   const [showIngest, setShowIngest] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [showAdminMenu, setShowAdminMenu] = useState(false);
+  const [usingSupabase, setUsingSupabase] = useState(false);
 
+  // ── Data loading: Supabase primary, localStorage fallback ─────────────────
   useEffect(() => {
     (async () => {
-      try {
-        const r = await store.get(STORAGE_KEY);
-        if (r?.value) { const p = JSON.parse(r.value); if (Array.isArray(p) && p.length > 0) { setInvoices(p); setSC(p.length); } else { await store.set(STORAGE_KEY, JSON.stringify(SEED_INVOICES)); setSC(SEED_INVOICES.length); } }
-        else { await store.set(STORAGE_KEY, JSON.stringify(SEED_INVOICES)); setSC(SEED_INVOICES.length); }
-      } catch { try { await store.set(STORAGE_KEY, JSON.stringify(SEED_INVOICES)); setSC(SEED_INVOICES.length); } catch {} }
-      try {
-        const tr = await store.get(TXN_STORAGE_KEY);
-        if (tr?.value) { const p = JSON.parse(tr.value); if (Array.isArray(p) && p.length > 0) { setTxns(p); setTC(p.length); } else { await store.set(TXN_STORAGE_KEY, JSON.stringify(SEED_TRANSACTIONS)); setTC(SEED_TRANSACTIONS.length); } }
-        else { await store.set(TXN_STORAGE_KEY, JSON.stringify(SEED_TRANSACTIONS)); setTC(SEED_TRANSACTIONS.length); }
-      } catch { try { await store.set(TXN_STORAGE_KEY, JSON.stringify(SEED_TRANSACTIONS)); setTC(SEED_TRANSACTIONS.length); } catch {} }
-      try {
-        const cl = await store.get(CLIENT_KEY);
-        if (cl?.value) { const p = JSON.parse(cl.value); if (Array.isArray(p) && p.length > 0) setClients(p); }
-      } catch {}
+      const sbReady = isSupabaseConfigured();
+      setUsingSupabase(sbReady);
+
+      if (sbReady) {
+        // ── Supabase path ───────────────────────────────────────────────────
+        try {
+          const [dbInvoices, dbTxns, dbClients] = await Promise.all([
+            getAllClientInvoices(),
+            getAllClientTransactions(),
+            getClients()
+          ]);
+
+          if (dbInvoices && dbInvoices.length > 0) {
+            setInvoices(dbInvoices); setSC(dbInvoices.length);
+          } else {
+            // First run: seed Supabase from built-in seed data
+            await bulkSeedInvoices(SEED_INVOICES);
+            await bulkSeedTransactions(SEED_TRANSACTIONS);
+            setInvoices(SEED_INVOICES); setSC(SEED_INVOICES.length);
+          }
+
+          if (dbTxns && dbTxns.length > 0) {
+            setTxns(dbTxns); setTC(dbTxns.length);
+          } else {
+            setTxns(SEED_TRANSACTIONS); setTC(SEED_TRANSACTIONS.length);
+          }
+
+          if (dbClients && dbClients.length > 0) setClients(dbClients);
+        } catch (err) {
+          console.error('[App] Supabase load failed, falling back:', err.message);
+          setUsingSupabase(false);
+        }
+      }
+
+      if (!sbReady) {
+        // ── localStorage fallback path ──────────────────────────────────────
+        try {
+          const r = await store.get(STORAGE_KEY);
+          if (r?.value) { const p = JSON.parse(r.value); if (Array.isArray(p) && p.length > 0) { setInvoices(p); setSC(p.length); } else { await store.set(STORAGE_KEY, JSON.stringify(SEED_INVOICES)); setSC(SEED_INVOICES.length); } }
+          else { await store.set(STORAGE_KEY, JSON.stringify(SEED_INVOICES)); setSC(SEED_INVOICES.length); }
+        } catch { try { await store.set(STORAGE_KEY, JSON.stringify(SEED_INVOICES)); setSC(SEED_INVOICES.length); } catch {} }
+        try {
+          const tr = await store.get(TXN_STORAGE_KEY);
+          if (tr?.value) { const p = JSON.parse(tr.value); if (Array.isArray(p) && p.length > 0) { setTxns(p); setTC(p.length); } else { await store.set(TXN_STORAGE_KEY, JSON.stringify(SEED_TRANSACTIONS)); setTC(SEED_TRANSACTIONS.length); } }
+          else { await store.set(TXN_STORAGE_KEY, JSON.stringify(SEED_TRANSACTIONS)); setTC(SEED_TRANSACTIONS.length); }
+        } catch { try { await store.set(TXN_STORAGE_KEY, JSON.stringify(SEED_TRANSACTIONS)); setTC(SEED_TRANSACTIONS.length); } catch {} }
+        try {
+          const cl = await store.get(CLIENT_KEY);
+          if (cl?.value) { const p = JSON.parse(cl.value); if (Array.isArray(p) && p.length > 0) setClients(p); }
+        } catch {}
+      }
+
       setLoaded(true);
     })();
   }, []);
 
-  useEffect(() => { if (!loaded) return; (async () => { try { await store.set(STORAGE_KEY, JSON.stringify(invoices)); setSC(invoices.length); } catch {} })(); }, [invoices, loaded]);
-  useEffect(() => { if (!loaded) return; (async () => { try { await store.set(TXN_STORAGE_KEY, JSON.stringify(txns)); setTC(txns.length); } catch {} })(); }, [txns, loaded]);
-  useEffect(() => { if (!loaded) return; (async () => { try { await store.set(CLIENT_KEY, JSON.stringify(clients)); } catch {} })(); }, [clients, loaded]);
+  // localStorage persistence (only when Supabase not active)
+  useEffect(() => { if (!loaded || usingSupabase) return; (async () => { try { await store.set(STORAGE_KEY, JSON.stringify(invoices)); setSC(invoices.length); } catch {} })(); }, [invoices, loaded, usingSupabase]);
+  useEffect(() => { if (!loaded || usingSupabase) return; (async () => { try { await store.set(TXN_STORAGE_KEY, JSON.stringify(txns)); setTC(txns.length); } catch {} })(); }, [txns, loaded, usingSupabase]);
+  useEffect(() => { if (!loaded || usingSupabase) return; (async () => { try { await store.set(CLIENT_KEY, JSON.stringify(clients)); } catch {} })(); }, [clients, loaded, usingSupabase]);
 
-  const handleAddClient = () => {
+  const handleAddClient = async () => {
     const name = newClientName.trim();
     if (!name || clients.includes(name)) return;
+    if (usingSupabase) await addClient(name);
+    else { const updated = [...clients, name]; await store.set(CLIENT_KEY, JSON.stringify(updated)); }
     setClients(prev => [...prev, name]);
     setActiveClient(name);
     setNewClientName("");
@@ -472,18 +523,30 @@ export default function App() {
   };
 
   const handleExport = () => {
-    const blob = new Blob([JSON.stringify({ agreements: AGREEMENTS, invoices, transactions: txns, clients, exported: new Date().toISOString(), version: "v5.3" }, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ agreements: AGREEMENTS, invoices, transactions: txns, clients, exported: new Date().toISOString(), version: "v7.0" }, null, 2)], { type: "application/json" });
     const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = `ironclad_${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(u);
   };
+
   const handleReset = () => {
     setInvoices(SEED_INVOICES); setTxns(SEED_TRANSACTIONS);
-    (async () => { try { await store.set(STORAGE_KEY, JSON.stringify(SEED_INVOICES)); setSC(SEED_INVOICES.length); await store.set(TXN_STORAGE_KEY, JSON.stringify(SEED_TRANSACTIONS)); setTC(SEED_TRANSACTIONS.length); } catch {} })();
+    if (!usingSupabase) {
+      (async () => { try { await store.set(STORAGE_KEY, JSON.stringify(SEED_INVOICES)); setSC(SEED_INVOICES.length); await store.set(TXN_STORAGE_KEY, JSON.stringify(SEED_TRANSACTIONS)); setTC(SEED_TRANSACTIONS.length); } catch {} })();
+    }
+    setShowAdminMenu(false);
   };
 
-  const handleIngest = (record) => {
+  const handleIngest = async (record) => {
+    // Save to Supabase if available
+    if (usingSupabase) {
+      await saveClientInvoice(record);
+    }
+    // Always keep local state in sync
     setInvoices(prev => {
-      const updated = [record, ...prev];
-      store.set(STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
+      const exists = prev.findIndex(i => i.id === record.id);
+      const updated = exists >= 0
+        ? prev.map((i, idx) => idx === exists ? record : i)
+        : [record, ...prev];
+      if (!usingSupabase) store.set(STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
       setSC(updated.length);
       return updated;
     });
@@ -515,7 +578,32 @@ export default function App() {
         </div>
         <div style={{ fontSize: 10, color: S.dim, textAlign: "right" }}>
           <div>{filteredInvoices.length} invoices · {filteredTxns.length} deals | {f$(tot)} R&M</div>
-          <div style={{ color: "#16a34a", fontSize: 9 }}>● v6.0 — Full Audit Engine | OCR Ingestion | Compliance + Baselines</div>
+          <div style={{ color: usingSupabase ? "#16a34a" : "#d97706", fontSize: 9 }}>
+            ● {usingSupabase ? "v7.0 — Supabase · Multi-Client · RAG" : "v7.0 — Local mode (Supabase not configured)"}
+          </div>
+        </div>
+        {/* Admin gear menu */}
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={() => setShowAdminMenu(v => !v)}
+            style={{ background: "transparent", border: `1px solid ${S.border}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 14, color: S.dim, lineHeight: 1 }}
+            title="Admin"
+          >⚙</button>
+          {showAdminMenu && <>
+            <div onClick={() => setShowAdminMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+            <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", background: S.card, border: `1px solid ${S.border}`, borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.1)", zIndex: 300, minWidth: 200, overflow: "hidden" }}>
+              <div style={{ padding: "8px 14px", fontSize: 9, color: S.dim, textTransform: "uppercase", letterSpacing: 1, borderBottom: `1px solid ${S.border}` }}>Admin</div>
+              <div style={{ padding: "4px 0" }}>
+                <button onClick={handleExport} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: S.text, cursor: "pointer" }}>⬇ Export All Data (JSON)</button>
+                <div style={{ height: 1, background: S.border, margin: "4px 14px" }} />
+                <button onClick={() => { if (confirm("Reset all data to seed invoices? This cannot be undone.")) handleReset(); }} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#dc2626", cursor: "pointer" }}>↺ Reset to Seed Data</button>
+              </div>
+              <div style={{ padding: "8px 14px", borderTop: `1px solid ${S.border}`, fontSize: 9, color: S.dim }}>
+                {usingSupabase ? "✓ Supabase connected" : "⚠ Supabase not configured"}<br />
+                {invoices.length} invoices · {txns.length} transactions · {clients.length} clients
+              </div>
+            </div>
+          </>}
         </div>
       </div>
     </div>
@@ -531,12 +619,11 @@ export default function App() {
     </div>
     <div style={{ padding: "16px 20px", maxWidth: 1400, margin: "0 auto" }}>
       {!loaded ? <div style={{ textAlign: "center", padding: 40, color: S.dim }}>Loading...</div> :
-        tab === "Dashboard" ? <Dashboard data={filteredInvoices} txns={filteredTxns} activeClient={activeClient} /> :
-          tab === "Invoices" ? <InvoiceTable data={filteredInvoices} /> :
-            tab === "Equipment" ? <EquipmentView data={filteredInvoices} /> :
-              tab === "Transactions" ? <TransactionsView txns={filteredTxns} /> :
-                tab === "Agreements" ? <AgreementView /> :
-                  <DataTab data={invoices} txns={txns} onExport={handleExport} onReset={handleReset} count={sC} txnCount={tC} />}
+        tab === "Dashboard"     ? <Dashboard data={filteredInvoices} txns={filteredTxns} activeClient={activeClient} /> :
+        tab === "Invoices"      ? <InvoiceTable data={filteredInvoices} /> :
+        tab === "Equipment"     ? <EquipmentView data={filteredInvoices} /> :
+        tab === "Transactions"  ? <TransactionsView txns={filteredTxns} /> :
+                                  <AgreementView />}
     </div>
     {showIngest && <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div onClick={() => setShowIngest(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.2)" }} />
