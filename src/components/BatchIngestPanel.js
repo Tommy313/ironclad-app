@@ -236,7 +236,7 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
               fileSkipped++;
               skipped++;
             } else {
-              onSave(record);
+              await onSave(record);
               savedIdsRef.current.add(record.id);
               ingestToRAG(record);
               fileSaved++;
@@ -266,7 +266,7 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
             ));
             skipped++;
           } else {
-            onSave(record);
+            await onSave(record);
             savedIdsRef.current.add(record.id);
             ingestToRAG(record);
 
