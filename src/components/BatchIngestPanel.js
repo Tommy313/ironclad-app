@@ -112,6 +112,53 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
   const stopRef     = useRef(false);
   const savedIdsRef = useRef(new Set(existingIds || [])); // tracks IDs saved this session too
 
+  // ── Folder-aware file reading ─────────────────────────────────────────────────
+  // Browser drag-and-drop hands back the folder itself, not its contents.
+  // webkitGetAsEntry() + createReader() recursively expands folders into File objects.
+
+  const readDirEntry = useCallback(async (dirEntry) => {
+    const files = [];
+    const reader = dirEntry.createReader();
+    const readChunk = () => new Promise((res, rej) => reader.readEntries(res, rej));
+    let chunk;
+    do {
+      chunk = await readChunk();
+      for (const entry of chunk) {
+        if (entry.isFile) {
+          const f = await new Promise((res, rej) => entry.file(res, rej));
+          files.push(f);
+        } else if (entry.isDirectory) {
+          files.push(...await readDirEntry(entry));
+        }
+      }
+    } while (chunk.length > 0);
+    return files;
+  }, []);
+
+  const loadFromDataTransfer = useCallback(async (dataTransfer) => {
+    const files = [];
+    const items = Array.from(dataTransfer.items || []);
+
+    if (items.length > 0 && items[0].webkitGetAsEntry) {
+      // Use File System API — handles both files and folders
+      for (const item of items) {
+        if (item.kind !== 'file') continue;
+        const entry = item.webkitGetAsEntry();
+        if (!entry) continue;
+        if (entry.isFile) {
+          const f = await new Promise((res, rej) => entry.file(res, rej));
+          files.push(f);
+        } else if (entry.isDirectory) {
+          files.push(...await readDirEntry(entry));
+        }
+      }
+    } else {
+      // Fallback: plain file list
+      files.push(...Array.from(dataTransfer.files || []));
+    }
+    return files;
+  }, [readDirEntry]);
+
   // ── File selection ────────────────────────────────────────────────────────────
   const loadFiles = useCallback((files) => {
     const pdfs = Array.from(files)
@@ -245,18 +292,38 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
 
         {/* SELECT PHASE */}
         {phase === "select" && (
-          <div
-            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={e => { e.preventDefault(); setDragOver(false); loadFiles(e.dataTransfer.files); }}
-            onClick={() => document.getElementById("ic-batch-input").click()}
-            style={{ border: `2px dashed ${dragOver ? S.accent : S.border}`, borderRadius: 14, padding: "60px 40px", textAlign: "center", cursor: "pointer", background: dragOver ? S.accent + "05" : S.bg, transition: "all .15s" }}>
-            <div style={{ fontSize: 36, marginBottom: 10 }}>📂</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: S.bright, marginBottom: 6 }}>Drop your invoice folder here</div>
-            <div style={{ fontSize: 12, color: S.dim, lineHeight: 1.6 }}>Or click to select multiple PDFs.<br />GPT-4o Vision will extract all fields automatically.</div>
-            <div style={{ marginTop: 14, fontSize: 10, color: S.dim }}>Supports scanned PDFs · Any dealer format · Up to 4 pages per invoice</div>
-            <input id="ic-batch-input" type="file" accept=".pdf" multiple style={{ display: "none" }}
-              onChange={e => loadFiles(e.target.files)} />
+          <div>
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={async e => {
+                e.preventDefault();
+                setDragOver(false);
+                const files = await loadFromDataTransfer(e.dataTransfer);
+                loadFiles(files);
+              }}
+              style={{ border: `2px dashed ${dragOver ? S.accent : S.border}`, borderRadius: 14, padding: "50px 40px", textAlign: "center", background: dragOver ? S.accent + "05" : S.bg, transition: "all .15s" }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>📂</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: S.bright, marginBottom: 6 }}>Drop your invoice folder here</div>
+              <div style={{ fontSize: 12, color: S.dim, marginBottom: 20, lineHeight: 1.6 }}>Drag a whole folder — all PDFs inside will be found automatically.<br />GPT-4o Vision extracts all fields from each invoice.</div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+                <button onClick={() => document.getElementById("ic-batch-folder").click()}
+                  style={{ padding: "9px 20px", background: S.accent, color: "#fff", border: "none", borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 6px rgba(74,127,212,0.25)" }}>
+                  📁 Select Folder
+                </button>
+                <button onClick={() => document.getElementById("ic-batch-files").click()}
+                  style={{ padding: "9px 20px", background: S.bg, border: `1.5px solid ${S.border}`, borderRadius: 10, fontSize: 12, fontWeight: 600, color: S.text, cursor: "pointer" }}>
+                  📄 Select Files
+                </button>
+              </div>
+              <div style={{ marginTop: 14, fontSize: 10, color: S.dim }}>Supports scanned PDFs · Any dealer format · Up to 4 pages per invoice</div>
+              {/* Folder picker — webkitdirectory reads all files in the chosen folder */}
+              <input id="ic-batch-folder" type="file" accept=".pdf" webkitdirectory="" style={{ display: "none" }}
+                onChange={e => loadFiles(e.target.files)} />
+              {/* Multi-file picker — for selecting individual PDFs */}
+              <input id="ic-batch-files" type="file" accept=".pdf" multiple style={{ display: "none" }}
+                onChange={e => loadFiles(e.target.files)} />
+            </div>
           </div>
         )}
 
