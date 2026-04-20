@@ -12,6 +12,7 @@ import {
   isSupabaseConfigured,
   getClients, addClient,
   getAllClientInvoices, saveClientInvoice, saveNewClientInvoice,
+  deleteAllClientInvoices,
   getAllClientTransactions, saveClientTransaction,
   bulkSeedInvoices, bulkSeedTransactions
 } from "../lib/supabase";
@@ -543,12 +544,30 @@ export default function App() {
     const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = `ironclad_${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(u);
   };
 
-  const handleReset = () => {
-    setInvoices(SEED_INVOICES); setTxns(SEED_TRANSACTIONS);
-    if (!usingSupabase) {
-      (async () => { try { await store.set(STORAGE_KEY, JSON.stringify(SEED_INVOICES)); setSC(SEED_INVOICES.length); await store.set(TXN_STORAGE_KEY, JSON.stringify(SEED_TRANSACTIONS)); setTC(SEED_TRANSACTIONS.length); } catch {} })();
-    }
+  const handleReset = async () => {
     setShowAdminMenu(false);
+
+    if (usingSupabase) {
+      // Wipe all Ferrous (benchmark) invoices from Supabase, then re-seed
+      // This is the only way a reset survives a page refresh
+      try {
+        await deleteAllClientInvoices('Ferrous');
+        await bulkSeedInvoices(SEED_INVOICES);
+        await bulkSeedTransactions(SEED_TRANSACTIONS);
+      } catch (err) {
+        console.error('[reset] Supabase reset failed:', err.message);
+      }
+    } else {
+      try {
+        await store.set(STORAGE_KEY, JSON.stringify(SEED_INVOICES));
+        await store.set(TXN_STORAGE_KEY, JSON.stringify(SEED_TRANSACTIONS));
+      } catch {}
+    }
+
+    setInvoices(SEED_INVOICES);
+    setTxns(SEED_TRANSACTIONS);
+    setSC(SEED_INVOICES.length);
+    setTC(SEED_TRANSACTIONS.length);
   };
 
   const handleIngest = async (record) => {

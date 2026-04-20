@@ -249,6 +249,19 @@ export async function saveClientTransaction(txn) {
 }
 
 
+// ─── Delete all invoices for a client (used by reset) ────────────────────────
+
+export async function deleteAllClientInvoices(clientName) {
+  if (!supabase) return false;
+  const { error } = await supabase
+    .from('invoices')
+    .delete()
+    .eq('client', clientName);
+  if (error) { console.error('[supabase] deleteAllClientInvoices:', error.message); return false; }
+  return true;
+}
+
+
 // ─── Bulk seed (one-time migration of localStorage data) ─────────────────────
 
 export async function bulkSeedInvoices(invoices) {
