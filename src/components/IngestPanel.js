@@ -67,26 +67,41 @@ export default function IngestPanel({ knownVendors, knownEquipment, activeClient
     setError("");
     setStage("extracting");
     try {
-      const result = await extractTextFromPDF(file);
+      // Pass context so Vision can hint on known vendors/equipment
+      const result = await extractTextFromPDF(file, knownVendors || [], knownEquipment || []);
       setRawText(result.fullText);
-      const ext = extractFields(result.fullText, knownVendors, knownEquipment);
+
+      let ext;
+      if (result.visionFields) {
+        // ── Vision extraction succeeded — fields already annotated with confidence ──
+        ext = result.visionFields;
+      } else {
+        // ── Fallback: run regex extraction on extracted text ──────────────────────
+        ext = extractFields(result.fullText, knownVendors, knownEquipment);
+      }
+
       setFields(ext);
       const val = validateExtraction(ext);
       setChecks(val);
 
-      // Pre-fill form from extraction
+      // Pre-fill ALL form fields from extraction (Vision gives much more coverage)
       setForm(prev => ({
         ...prev,
-        id: ext.invoiceNumber?.value || "",
-        date: ext.date?.value || "",
-        workDates: ext.workDates?.value || "",
-        equipment: ext.equipment?.value || "",
-        sn: ext.sn?.value || "",
-        vendor: ext.vendor?.value || "",
-        meter: ext.meter?.value || 0,
-        labor: ext.labor?.value || 0,
-        parts: ext.parts?.value || 0,
-        total: ext.total?.value || 0,
+        id:          ext.invoiceNumber?.value || "",
+        date:        ext.date?.value         || "",
+        workDates:   ext.workDates?.value    || "",
+        equipment:   ext.equipment?.value    || "",
+        sn:          ext.sn?.value           || "",
+        unitId:      ext.unitId?.value       || "",
+        site:        ext.site?.value         || "",
+        vendor:      ext.vendor?.value       || "",
+        meter:       ext.meter?.value        || 0,
+        labor:       ext.labor?.value        || 0,
+        parts:       ext.parts?.value        || 0,
+        misc:        ext.misc?.value         || 0,
+        techs:       ext.techs?.value        || "",
+        visits:      ext.visits?.value       || 1,
+        description: ext.description?.value  || "",
       }));
       setStage("review");
     } catch (e) {
@@ -150,7 +165,7 @@ export default function IngestPanel({ knownVendors, knownEquipment, activeClient
       <div>
         <div style={{ fontSize: 15, fontWeight: 700, color: S.bright }}>Ingest Invoice</div>
         <div style={{ fontSize: 10, color: S.dim }}>
-          {stage === "upload" ? "Upload PDF or enter manually" : stage === "extracting" ? "Extracting text..." : stage === "review" ? "Review extracted data — correct any errors before saving" : "Saved to database"}
+          {stage === "upload" ? "Upload PDF or enter manually" : stage === "extracting" ? "AI Vision analyzing PDF — this takes ~10 seconds" : stage === "review" ? "Review extracted data — correct any errors before saving" : "Saved to database"}
           {activeClient && activeClient !== "all" && <span style={{ marginLeft: 8, color: S.accent, fontWeight: 600 }}>→ {activeClient}</span>}
         </div>
       </div>
@@ -177,8 +192,10 @@ export default function IngestPanel({ knownVendors, knownEquipment, activeClient
 
       {/* EXTRACTING */}
       {stage === "extracting" && <div style={{ textAlign: "center", padding: 40, color: S.dim }}>
-        <div style={{ fontSize: 16, marginBottom: 8 }}>Extracting text from PDF...</div>
-        <div style={{ fontSize: 11 }}>Pattern matching against known vendors and equipment library.</div>
+        <div style={{ fontSize: 32, marginBottom: 10 }}>🔍</div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: S.bright, marginBottom: 6 }}>Analyzing invoice with AI Vision...</div>
+        <div style={{ fontSize: 11 }}>Rendering pages and sending to GPT-4o for structured extraction.</div>
+        <div style={{ fontSize: 10, marginTop: 6, color: S.dim }}>Works on scanned PDFs, image-based invoices, and handwritten notes.</div>
       </div>}
 
       {/* REVIEW STAGE */}
