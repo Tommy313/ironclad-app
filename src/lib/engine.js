@@ -277,7 +277,9 @@ const VENDOR_RATES = {
 
 // vendorRegistry is the live Supabase vendors array (passed in from page state).
 // When provided, it takes precedence over the hardcoded VENDOR_RATES table.
+// Guard: Array.map calls callbacks as (item, index, array) — index would break .find()
 export function calc(inv, vendorRegistry = []) {
+  const registry = Array.isArray(vendorRegistry) ? vendorRegistry : [];
   const total = inv.parts + inv.labor + inv.misc;
   const allRes = inv.techs.length > 0 && inv.techs.every(t => t === RESIDENT_TECH);
   const allNon = inv.techs.length > 0 && inv.techs.every(t => t !== RESIDENT_TECH);
@@ -295,7 +297,7 @@ export function calc(inv, vendorRegistry = []) {
   // Fires when Tier 1 didn't match AND labor > 0 (skip parts-only invoices)
   if (rate === null && inv.labor > 0) {
     // 2a: Check live registry first
-    const regEntry = vendorRegistry.find(v => v.name === inv.vendor);
+    const regEntry = registry.find(v => v.name === inv.vendor);
     if (regEntry && regEntry.labor_rate) {
       rate = parseFloat(regEntry.labor_rate);
       impliedHrs = inv.labor / rate;
@@ -442,10 +444,11 @@ const AUDIT_FLAG_MAP = {
  * - flagNotes is populated with a summary of all engine findings.
  */
 export function runAuditFlags(invoice, allInvoices = [], vendorRegistry = []) {
+  const registry = Array.isArray(vendorRegistry) ? vendorRegistry : [];
   // Guard: if registry has data and vendor isn't in it, block processing.
   // Only fires when registry is populated — falls back gracefully before first Supabase sync.
-  if (vendorRegistry.length > 0 && invoice.vendor) {
-    const known = vendorRegistry.find(v => v.name === invoice.vendor);
+  if (registry.length > 0 && invoice.vendor) {
+    const known = registry.find(v => v.name === invoice.vendor);
     if (!known) {
       const manualFlags = (invoice.flags || []).filter(f => !f.startsWith("ENG-"));
       const existingNotes = (invoice.flagNotes || "").replace(/\s*\[ENG\].*$/s, "").trim();
@@ -457,8 +460,8 @@ export function runAuditFlags(invoice, allInvoices = [], vendorRegistry = []) {
     }
   }
 
-  const calcResult  = calc(invoice, vendorRegistry);
-  const bl          = buildBaselines(allInvoices, undefined, vendorRegistry);
+  const calcResult  = calc(invoice, registry);
+  const bl          = buildBaselines(allInvoices, undefined, registry);
   const checks      = audit(calcResult, bl);
 
   // Map FLAG-level findings to ENG- codes
