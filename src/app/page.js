@@ -25,8 +25,15 @@ function Dashboard({ data, txns, activeClient }) {
   if (activeClient === "all") return <div style={{ textAlign: "center", padding: 80 }}>
     <div style={{ fontSize: 40, marginBottom: 16, opacity: 0.3 }}>📊</div>
     <div style={{ fontSize: 18, fontWeight: 700, color: S.bright, marginBottom: 8 }}>Select a client to view audit results</div>
-    <div style={{ fontSize: 13, color: S.dim, maxWidth: 400, margin: "0 auto", lineHeight: 1.6 }}>Use the client dropdown in the header to select an audit client. Dashboard, invoices, and equipment views will filter to that client's data. Your Ferrous baseline data powers the benchmarks behind the scenes.</div>
+    <div style={{ fontSize: 13, color: S.dim, maxWidth: 400, margin: "0 auto", lineHeight: 1.6 }}>Use the client dropdown to select an audit client. Dashboard, invoices, and equipment views will filter to that client's data.</div>
   </div>;
+
+  if (data.length === 0) return <div style={{ textAlign: "center", padding: 80 }}>
+    <div style={{ fontSize: 40, marginBottom: 16, opacity: 0.3 }}>📂</div>
+    <div style={{ fontSize: 18, fontWeight: 700, color: S.bright, marginBottom: 8 }}>No invoices yet for this client</div>
+    <div style={{ fontSize: 13, color: S.dim, maxWidth: 400, margin: "0 auto", lineHeight: 1.6 }}>Use Ingest Invoice or Batch Import to add invoices. They'll appear here and feed the audit engine automatically.</div>
+  </div>;
+
   const c = data.map(calc);
   const tot = c.reduce((s, i) => s + i.total, 0), lab = c.reduce((s, i) => s + i.labor, 0), pts = c.reduce((s, i) => s + i.parts, 0);
   const actionFlags = c.filter(i => i.flags.some(f => ["MISDIAGNOSIS", "EXCESSIVE-LABOR", "HIGH-LABOR", "LABOR-HEAVY", "HIGHEST-COST", "PHANTOM-PART", "COURIER-AT-MECH-RATE", "UNDOCUMENTED-CHARGE", "WRONG-FLUID"].includes(f))).length;
@@ -57,7 +64,7 @@ function Dashboard({ data, txns, activeClient }) {
     </div>}
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
       <Stat label="R&M Invoiced" value={f$(tot)} sub={`${c.length} invoices`} color={S.accent} />
-      <Stat label="Labor / Parts" value={`${fP(lab / tot * 100)} / ${fP(pts / tot * 100)}`} sub={`${f$(lab)} / ${f$(pts)}`} color="#ea580c" />
+      <Stat label="Labor / Parts" value={tot > 0 ? `${fP(lab / tot * 100)} / ${fP(pts / tot * 100)}` : "— / —"} sub={`${f$(lab)} / ${f$(pts)}`} color="#ea580c" />
       <Stat label="Implied Hours" value={fH(impH)} sub={`vs ${fH(expH)} expected`} color="#2563eb" />
       <Stat label="Audit Findings" value={`${actionFlags} + ${complianceFlags}`} sub={`${actionFlags} manual | ${complianceFlags} compliance | ${compliancePass} passed`} color="#dc2626" />
       <Stat label="Vendors / Machines" value={`${vendors.length} / ${equip.length}`} sub={vendors.join(", ")} color="#16a34a" />
@@ -441,6 +448,13 @@ export default function App() {
   const [tC, setTC] = useState(0);
   const [activeClient, setActiveClient] = useState("all");
   const [clients, setClients] = useState(["Ferrous"]);
+
+  // Benchmark clients — hidden from the audit client dropdown.
+  // Their data still powers engine calculations and AI context behind the scenes.
+  // Accessible via the gear menu for internal testing.
+  const BENCHMARK_CLIENTS = ['Ferrous'];
+  const auditClients = clients.filter(c => !BENCHMARK_CLIENTS.includes(c));
+  const isBenchmarkMode = BENCHMARK_CLIENTS.includes(activeClient);
   const [showClientAdd, setShowClientAdd] = useState(false);
   const [newClientName, setNewClientName] = useState("");
   const [showIngest,      setShowIngest]      = useState(false);
@@ -586,10 +600,12 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 9, color: S.dim, textTransform: "uppercase", letterSpacing: .5 }}>Client:</span>
           <select value={activeClient} onChange={e => setActiveClient(e.target.value)}
-            style={{ background: S.card, border: `1.5px solid ${activeClient !== "all" ? S.accent : S.border}`, borderRadius: 10, color: activeClient !== "all" ? S.accent : S.text, fontSize: 11, padding: "4px 8px", outline: "none", fontWeight: 600, cursor: "pointer" }}>
-            <option value="all">All Data ({invoices.length})</option>
-            {clients.map(c => <option key={c} value={c}>{c} ({invoices.filter(i => (i.client || "Ferrous") === c).length})</option>)}
+            style={{ background: isBenchmarkMode ? "#d9770610" : S.card, border: `1.5px solid ${isBenchmarkMode ? S.yellow : activeClient !== "all" ? S.accent : S.border}`, borderRadius: 10, color: isBenchmarkMode ? S.yellow : activeClient !== "all" ? S.accent : S.text, fontSize: 11, padding: "4px 8px", outline: "none", fontWeight: 600, cursor: "pointer" }}>
+            <option value="all">— Select Client —</option>
+            {auditClients.map(c => <option key={c} value={c}>{c} ({invoices.filter(i => (i.client || "Ferrous") === c).length})</option>)}
+            {isBenchmarkMode && <option value={activeClient}>{activeClient} ★ Benchmark</option>}
           </select>
+          {isBenchmarkMode && <span style={{ fontSize: 9, fontWeight: 700, color: S.yellow, textTransform: "uppercase", letterSpacing: .5 }}>★ Benchmark Mode</span>}
           <button onClick={() => setShowClientAdd(!showClientAdd)} className="ic-btn" style={{ padding: "4px 12px", background: showClientAdd ? "#dc2626" : S.accent + "10", border: `1.5px solid ${showClientAdd ? "#dc2626" : S.accent}30`, borderRadius: 16, color: showClientAdd ? "#fff" : S.accent, fontSize: 10, cursor: "pointer", fontWeight: 700 }}>{showClientAdd ? "×" : "+ New"}</button>
           <button onClick={() => setShowIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: S.accent, color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(74,127,212,0.25)", marginLeft: 8 }}>📄 Ingest Invoice</button>
           <button onClick={() => setShowBatchIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: "#16a34a", color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(22,163,74,0.25)" }}>📂 Batch Import</button>
@@ -613,6 +629,13 @@ export default function App() {
               <div style={{ padding: "8px 14px", fontSize: 9, color: S.dim, textTransform: "uppercase", letterSpacing: 1, borderBottom: `1px solid ${S.border}` }}>Admin</div>
               <div style={{ padding: "4px 0" }}>
                 <button onClick={handleExport} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: S.text, cursor: "pointer" }}>⬇ Export All Data (JSON)</button>
+                <div style={{ height: 1, background: S.border, margin: "4px 14px" }} />
+                {BENCHMARK_CLIENTS.map(bc => (
+                  <button key={bc} onClick={() => { setActiveClient(bc); setShowAdminMenu(false); }}
+                    style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: S.yellow, cursor: "pointer" }}>
+                    ★ View Benchmark Data ({bc})
+                  </button>
+                ))}
                 <div style={{ height: 1, background: S.border, margin: "4px 14px" }} />
                 <button onClick={() => { if (confirm("Reset all data to seed invoices? This cannot be undone.")) handleReset(); }} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#dc2626", cursor: "pointer" }}>↺ Reset to Seed Data</button>
               </div>
