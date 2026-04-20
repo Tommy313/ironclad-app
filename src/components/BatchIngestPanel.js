@@ -382,8 +382,8 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
             {/* Progress bar */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 11, color: S.text }}>
-                <span><strong>{processed}</strong> / {queue.length} invoices</span>
-                <span style={{ color: S.dim }}>~{fmt(etaSecs)} remaining</span>
+                <span><strong>{processed}</strong> / {queue.length} file{queue.length !== 1 ? "s" : ""} · <strong style={{ color: S.green }}>{stats.saved}</strong> invoices saved</span>
+                <span style={{ color: S.dim }}>{phase === "running" && processed < queue.length ? `~${fmt((queue.length - processed) * avgSecs)} est. remaining` : "finishing…"}</span>
               </div>
               <div style={{ height: 8, background: S.bg, borderRadius: 8, overflow: "hidden", border: `1px solid ${S.border}` }}>
                 <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${S.accent}, #3a6ab8)`, borderRadius: 8, transition: "width .4s ease" }} />
