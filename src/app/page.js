@@ -43,9 +43,13 @@ function Dashboard({ data, txns, activeClient }) {
   const complianceFlags = allAudits.reduce((s, ck) => s + ck.filter(c => c.r === "FLAG").length, 0);
   const compliancePass = allAudits.reduce((s, ck) => s + ck.filter(c => c.r === "PASS").length, 0);
   const impH = c.filter(i => i.impliedHrs != null).reduce((s, i) => s + i.impliedHrs, 0);
-  const expH = c.reduce((s, i) => s + i.midHrs, 0);
-  const excessH = c.filter(i => i.variance > 0).reduce((s, i) => s + i.variance, 0);
-  const excessDollars = c.filter(i => i.varDollars > 0).reduce((s, i) => s + i.varDollars, 0);
+  const expH = c.filter(i => i.midHrs != null).reduce((s, i) => s + i.midHrs, 0);
+  // Only count exposure for invoices with explicit expected-hour benchmarks (midHrs != null)
+  // Invoices without expected hours still get statistical analysis via buildBaselines/audit
+  const excessH = c.filter(i => i.variance != null && i.variance > 0).reduce((s, i) => s + i.variance, 0);
+  const excessDollars = c.filter(i => i.varDollars != null && i.varDollars > 0).reduce((s, i) => s + i.varDollars, 0);
+  // Statistical outliers from audit engine (even without expected hours)
+  const statFlags = allAudits.reduce((s, ck) => s + ck.filter(c => c.r === "FLAG" && ["Hours vs Category","Cost vs Category","Rate vs Baseline","Repeat Repair"].includes(c.ck)).length, 0);
   const vendors = [...new Set(c.map(i => i.vendor))], equip = [...new Set(c.map(i => i.unitId))];
   const catD = {}; c.forEach(i => { catD[i.category] = (catD[i.category] || 0) + i.total; });
   const pie = Object.entries(catD).map(([name, value]) => ({ name, value }));
@@ -59,7 +63,7 @@ function Dashboard({ data, txns, activeClient }) {
     {excessDollars > 0 && <div style={{ background: "#dc262608", border: "2px solid #dc262630", borderRadius: 14, padding: "20px 24px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
       <div>
         <div style={{ fontSize: 10, color: "#dc2626", textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>Identified Cost Exposure</div>
-        <div style={{ fontSize: 11, color: S.dim, marginTop: 2 }}>{excessH.toFixed(1)} excess hours across {c.filter(i => i.variance > 0).length} invoices with rate data</div>
+        <div style={{ fontSize: 11, color: S.dim, marginTop: 2 }}>{excessH.toFixed(1)} excess hours across {c.filter(i => i.variance != null && i.variance > 0).length} invoices with benchmarked hours{statFlags > 0 ? ` · ${statFlags} statistical outlier${statFlags !== 1 ? "s" : ""} flagged` : ""}</div>
       </div>
       <div style={{ fontSize: 32, fontWeight: 900, color: "#dc2626", fontFamily: "'JetBrains Mono',monospace" }}>{f$(excessDollars)}</div>
     </div>}

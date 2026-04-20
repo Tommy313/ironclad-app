@@ -244,41 +244,76 @@ export const TXN_TAG_META = {
   "COMP-DATA":{c:"#ea580c",l:"Comp Data"}
 };
 
+// Vendor rate table — used to derive implied hours for ANY invoice from a known vendor
+// even when agreement type or tech names weren't captured on import.
+// confidence: "contract" = verified agreement rate | "published" = known published rate | "estimated" = industry estimate
+const VENDOR_RATES = {
+  "Alta Equipment":                    { rate: 140, confidence: "contract",  note: "Resident contract FY25 $140/hr (BP0015900)" },
+  "Michigan CAT":                      { rate: 125, confidence: "contract",  note: "MacAllister negotiated field rate (expired 12/31/25)" },
+  "Michigan CAT (MacAllister Machinery)": { rate: 125, confidence: "contract", note: "MacAllister negotiated field rate" },
+  "RECO Equipment":                    { rate: 115, confidence: "published", note: "RECO published field labor rate" },
+  "RECO Equipment, Inc.":              { rate: 115, confidence: "published", note: "RECO published field labor rate" },
+  "Summit Industrial Services":        { rate: 120, confidence: "published", note: "Summit labor rate (travel separate $80/hr)" },
+  "Ohio CAT":                          { rate: 130, confidence: "published", note: "Ohio CAT standard field rate" },
+  "Towlift":                           { rate: 105, confidence: "estimated", note: "Estimated — Towlift material handling rate" },
+  "CO-OP Industries, Inc.":            { rate: 110, confidence: "estimated", note: "Estimated — Co-Op industrial rate" },
+  "Altorfer CAT":                      { rate: 130, confidence: "published", note: "Altorfer standard field rate" },
+  "RubberEdge":                        { rate:  95, confidence: "estimated", note: "Estimated — RubberEdge attachment specialist" },
+  "Apex Shear Blades":                 { rate:  95, confidence: "estimated", note: "Estimated — Apex attachment specialist" },
+};
+
 export function calc(inv) {
   const total = inv.parts + inv.labor + inv.misc;
   const allRes = inv.techs.length > 0 && inv.techs.every(t => t === RESIDENT_TECH);
   const allNon = inv.techs.length > 0 && inv.techs.every(t => t !== RESIDENT_TECH);
   const fy = AGREEMENTS.alta.rates.fy25;
-  let rate = null, impliedHrs = null, rateNote = "";
+  let rate = null, impliedHrs = null, rateNote = "", rateConfidence = null;
+
+  // ── Tier 1: Exact agreement + tech match (highest confidence) ─────────────
   if (inv.vendor === "Alta Equipment" && inv.agreement === "resident" && allRes) {
-    rate = fy.standard; impliedHrs = inv.labor / rate;
+    rate = fy.standard; impliedHrs = inv.labor / rate; rateConfidence = "contract";
     const trH = inv.visits, wrH = impliedHrs - trH;
     rateNote = `${RESIDENT_TECH} @ $${rate}/hr (contract) | ${impliedHrs.toFixed(1)}h total, ${trH}h travel, ${wrH.toFixed(1)}h wrench`;
-  } else if (inv.vendor === "Alta Equipment" && !allRes && !allNon) {
-    rateNote = "Mixed techs — $" + fy.standard + " agreement + non-agreement — cannot split";
-  } else if (inv.vendor === "Alta Equipment" && allNon) {
-    rateNote = "Non-agreement tech — rate unknown (outside Ferrous/Alta contract)";
-  } else { rateNote = `${inv.vendor} — no agreement rate`; }
-  if (inv.vendor === "Altorfer CAT" && inv.techRate) {
-    rate = inv.techRate; impliedHrs = inv.labor / rate;
-    rateNote = `Altorfer CAT @ $${rate}/hr (field) | ${impliedHrs.toFixed(1)}h total (3h field + 1h travel)`;
   }
-  if (inv.vendor === "Michigan CAT (MacAllister Machinery)" && inv.techRate) {
-    rate = inv.techRate; impliedHrs = inv.labor / rate;
-    rateNote = `Michigan CAT @ $${rate}/hr (field) | ${impliedHrs.toFixed(1)}h implied`;
+
+  // ── Tier 2: Vendor rate table fallback — works for all imports ─────────────
+  // Fires when Tier 1 didn't match AND labor > 0 (skip parts-only invoices)
+  if (rate === null && inv.labor > 0) {
+    const vr = VENDOR_RATES[inv.vendor];
+    if (vr) {
+      rate = vr.rate;
+      impliedHrs = inv.labor / rate;
+      rateConfidence = vr.confidence;
+      rateNote = `${vr.note} | ${impliedHrs.toFixed(1)}h implied`;
+    } else if (inv.vendor) {
+      rateNote = `${inv.vendor} — rate not in table`;
+    }
+  } else if (rate === null) {
+    // Explain why rate is null for Alta-specific edge cases
+    if (inv.vendor === "Alta Equipment" && !allRes && !allNon && inv.techs.length > 0) {
+      rateNote = "Mixed techs — $" + fy.standard + " agreement + non-agreement — cannot split";
+    } else if (inv.vendor === "Alta Equipment" && allNon) {
+      rateNote = "Non-agreement tech — rate unknown (outside Ferrous/Alta contract)";
+    } else if (inv.labor === 0) {
+      rateNote = inv.vendor ? `${inv.vendor} — parts-only invoice` : "Parts-only invoice";
+    }
   }
-  if (inv.vendor === "RECO Equipment" && inv.techRate) {
-    rate = inv.techRate; impliedHrs = inv.labor / rate;
-    rateNote = `RECO @ $${rate}/hr (field) | ${impliedHrs.toFixed(1)}h field + travel separate`;
-  }
-  if (inv.vendor === "Summit Industrial Services" && inv.techRate) {
-    rate = inv.techRate; impliedHrs = inv.labor / rate;
-    rateNote = `Summit @ $${rate}/hr (labor) + $80/hr travel | ${impliedHrs.toFixed(1)}h labor`;
-  }
-  const midHrs = (inv.expectedHoursLow + inv.expectedHoursHigh) / 2;
-  const variance = impliedHrs != null ? impliedHrs - midHrs : null;
+
+  // ── Exposure calculation ───────────────────────────────────────────────────
+  // Use expectedHours if explicitly set; fall back to null (statistical baseline
+  // in audit() will still flag outliers via buildBaselines)
+  const hasExpected = inv.expectedHoursLow > 0 || inv.expectedHoursHigh > 0;
+  const midHrs = hasExpected ? (inv.expectedHoursLow + inv.expectedHoursHigh) / 2 : null;
+  const variance = impliedHrs != null && midHrs != null ? impliedHrs - midHrs : null;
   const varDollars = variance != null && rate ? variance * rate : null;
-  return { ...inv, total, rate, impliedHrs, rateNote, midHrs, variance, varDollars, allFlags: [...inv.flags], laborPct: total > 0 ? inv.labor / total * 100 : 0, client: inv.client || "Ferrous", region: inv.region || "SE-MI" };
+
+  return {
+    ...inv, total, rate, impliedHrs, rateNote, rateConfidence, midHrs,
+    variance, varDollars, allFlags: [...inv.flags],
+    laborPct: total > 0 ? inv.labor / total * 100 : 0,
+    client: inv.client || "Ferrous",
+    region: inv.region || "SE-MI"
+  };
 }
 
 export function audit(c, bl) {
