@@ -6,6 +6,7 @@ import { AGREEMENTS, RESIDENT_TECH, SEED_INVOICES, SEED_TRANSACTIONS, LIFECYCLE_
   STORAGE_KEY, TXN_STORAGE_KEY, CLIENT_KEY,
   f$, f$2, fH, fP } from "../lib/engine";
 import IngestPanel from "../components/IngestPanel";
+import BatchIngestPanel from "../components/BatchIngestPanel";
 import { AIChatPanel, AIChatButton } from "../components/AIChatPanel";
 import {
   isSupabaseConfigured,
@@ -442,7 +443,8 @@ export default function App() {
   const [clients, setClients] = useState(["Ferrous"]);
   const [showClientAdd, setShowClientAdd] = useState(false);
   const [newClientName, setNewClientName] = useState("");
-  const [showIngest, setShowIngest] = useState(false);
+  const [showIngest,      setShowIngest]      = useState(false);
+  const [showBatchIngest, setShowBatchIngest] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [showAdminMenu, setShowAdminMenu] = useState(false);
   const [usingSupabase, setUsingSupabase] = useState(false);
@@ -575,6 +577,7 @@ export default function App() {
           </select>
           <button onClick={() => setShowClientAdd(!showClientAdd)} className="ic-btn" style={{ padding: "4px 12px", background: showClientAdd ? "#dc2626" : S.accent + "10", border: `1.5px solid ${showClientAdd ? "#dc2626" : S.accent}30`, borderRadius: 16, color: showClientAdd ? "#fff" : S.accent, fontSize: 10, cursor: "pointer", fontWeight: 700 }}>{showClientAdd ? "×" : "+ New"}</button>
           <button onClick={() => setShowIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: S.accent, color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(74,127,212,0.25)", marginLeft: 8 }}>📄 Ingest Invoice</button>
+          <button onClick={() => setShowBatchIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: "#16a34a", color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(22,163,74,0.25)" }}>📂 Batch Import</button>
         </div>
         <div style={{ fontSize: 10, color: S.dim, textAlign: "right" }}>
           <div>{filteredInvoices.length} invoices · {filteredTxns.length} deals | {f$(tot)} R&M</div>
@@ -635,6 +638,19 @@ export default function App() {
           existingIds={invoices.map(i => i.id)}
           onSave={handleIngest}
           onClose={() => setShowIngest(false)}
+        />
+      </div>
+    </div>}
+    {showBatchIngest && <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={() => setShowBatchIngest(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.2)" }} />
+      <div style={{ position: "relative", width: "100%", maxWidth: 780, zIndex: 201 }}>
+        <BatchIngestPanel
+          knownVendors={[...new Set(invoices.map(i => i.vendor))]}
+          knownEquipment={invoices.map(i => ({ id: i.unitId, make: i.equipment.split(" ")[0], model: i.equipment.split(" ").slice(1).join(" ") }))}
+          activeClient={activeClient !== "all" ? activeClient : "Ferrous"}
+          existingIds={invoices.map(i => i.id)}
+          onSave={handleIngest}
+          onClose={() => setShowBatchIngest(false)}
         />
       </div>
     </div>}
