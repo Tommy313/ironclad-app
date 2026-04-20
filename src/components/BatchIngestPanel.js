@@ -139,24 +139,39 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
     const files = [];
     const items = Array.from(dataTransfer.items || []);
 
-    if (items.length > 0 && items[0].webkitGetAsEntry) {
-      // Use File System API — handles both files and folders
-      for (const item of items) {
-        if (item.kind !== 'file') continue;
-        const entry = item.webkitGetAsEntry();
-        if (!entry) continue;
-        if (entry.isFile) {
-          const f = await new Promise((res, rej) => entry.file(res, rej));
-          files.push(f);
-        } else if (entry.isDirectory) {
-          files.push(...await readDirEntry(entry));
-        }
-      }
+    if (items.length > 0 && typeof items[0].webkitGetAsEntry === 'function') {
+      // Use File System API — handles both individual files and folders
+      const promises = items
+        .filter(item => item.kind === 'file')
+        .map(async (item) => {
+          let entry;
+          try { entry = item.webkitGetAsEntry(); } catch { return []; }
+          if (!entry) return [];
+          if (entry.isFile) {
+            try {
+              const f = await new Promise((res, rej) => entry.file(res, rej));
+              return [f];
+            } catch { return []; }
+          } else if (entry.isDirectory) {
+            try { return await readDirEntry(entry); } catch { return []; }
+          }
+          return [];
+        });
+      const results = await Promise.all(promises);
+      files.push(...results.flat());
     } else {
-      // Fallback: plain file list
+      // Fallback: plain file list (includes files from folders on some browsers)
       files.push(...Array.from(dataTransfer.files || []));
     }
-    return files;
+
+    // Deduplicate by name+size in case both items and files APIs returned same files
+    const seen = new Set();
+    return files.filter(f => {
+      const key = `${f.name}-${f.size}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }, [readDirEntry]);
 
   // ── File selection ────────────────────────────────────────────────────────────
@@ -326,6 +341,7 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
                 e.preventDefault();
                 setDragOver(false);
                 const files = await loadFromDataTransfer(e.dataTransfer);
+                console.log('[BatchIngest] drop captured', files.length, 'files:', files.map(f => f.name));
                 loadFiles(files);
               }}
               style={{ border: `2px dashed ${dragOver ? S.accent : S.border}`, borderRadius: 14, padding: "50px 40px", textAlign: "center", background: dragOver ? S.accent + "05" : S.bg, transition: "all .15s" }}>
@@ -358,8 +374,11 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div style={{ fontSize: 12, color: S.text }}>
-                <strong style={{ color: S.bright }}>{queue.length} invoices</strong> ready to process
+                <strong style={{ color: S.bright }}>{queue.length} PDF{queue.length !== 1 ? "s" : ""}</strong> ready to process
                 <span style={{ marginLeft: 8, fontSize: 10, color: S.dim }}>~{fmt(queue.length * avgSecs)} estimated via Vision</span>
+                {queue.some(q => q.sizeMb > 1) && (
+                  <span style={{ marginLeft: 8, fontSize: 10, color: S.purple }}>· large files may contain multiple invoices each</span>
+                )}
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => { setQueue([]); setPhase("select"); }}
