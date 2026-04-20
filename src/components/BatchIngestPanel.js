@@ -58,8 +58,31 @@ async function ingestToRAG(record) {
   }
 }
 
+// Normalize vendor names so "Alta Equipment Company" and "Alta Equipment" match
+// Strips common legal suffixes and trims whitespace, then matches against knownVendors
+function normalizeVendor(raw, knownVendors = []) {
+  if (!raw) return raw;
+  const cleaned = raw
+    .replace(/,?\s*(Inc\.?|LLC\.?|Corp\.?|Co\.?|Ltd\.?|Company|Incorporated|Limited)$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Try to find an exact match in knownVendors first (case-insensitive)
+  const exactMatch = knownVendors.find(v => v.toLowerCase() === cleaned.toLowerCase());
+  if (exactMatch) return exactMatch;
+
+  // Try to find a knownVendor that starts with our cleaned name or vice versa
+  const partialMatch = knownVendors.find(v => {
+    const vClean = v.replace(/,?\s*(Inc\.?|LLC\.?|Corp\.?|Co\.?|Ltd\.?|Company|Incorporated|Limited)$/i, '').trim();
+    return vClean.toLowerCase() === cleaned.toLowerCase();
+  });
+  if (partialMatch) return partialMatch;
+
+  return cleaned; // fall back to cleaned version
+}
+
 // Build a saveable invoice record from extracted fields
-function buildRecord(ext, file, activeClient, index) {
+function buildRecord(ext, file, activeClient, index, knownVendors = []) {
   const invoiceId = ext.invoiceNumber?.value || `batch-${Date.now()}-${index}`;
   return {
     id:          invoiceId,
@@ -86,7 +109,7 @@ function buildRecord(ext, file, activeClient, index) {
     expectedHoursLow:  0,
     expectedHoursHigh: 0,
     vendorType:  "unknown",
-    vendor:      ext.vendor?.value      || "",
+    vendor:      normalizeVendor(ext.vendor?.value || "", knownVendors),
     agreement:   "none",
     client:      activeClient           || "Ferrous",
     ingested:    new Date().toISOString(),
@@ -230,7 +253,7 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
 
           for (let j = 0; j < result.multiInvoice.length; j++) {
             const inv    = result.multiInvoice[j];
-            const record = buildRecord(inv.visionFields, item, activeClient, `${i}-${j}`);
+            const record = buildRecord(inv.visionFields, item, activeClient, `${i}-${j}`, knownVendors);
 
             if (savedIdsRef.current.has(record.id)) {
               fileSkipped++;
@@ -258,7 +281,7 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
             ? result.visionFields
             : extractFields(result.fullText, knownVendors, knownEquipment);
 
-          const record = buildRecord(ext, item, activeClient, i);
+          const record = buildRecord(ext, item, activeClient, i, knownVendors);
 
           if (savedIdsRef.current.has(record.id)) {
             setQueue(prev => prev.map((it, idx) =>
