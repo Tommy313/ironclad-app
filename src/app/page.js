@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { AGREEMENTS, RESIDENT_TECH, SEED_INVOICES, SEED_TRANSACTIONS, LIFECYCLE_DATA,
-  FLAG_META, TXN_TAG_META, CATEGORIES, REGIONS, calc, audit, buildBaselines, lifecycleRisk,
+  FLAG_META, TXN_TAG_META, CATEGORIES, REGIONS, calc, audit, buildBaselines, lifecycleRisk, runAuditFlags,
   STORAGE_KEY, TXN_STORAGE_KEY, CLIENT_KEY,
   f$, f$2, fH, fP } from "../lib/engine";
 import IngestPanel from "../components/IngestPanel";
@@ -575,16 +575,16 @@ export default function App() {
   };
 
   const handleIngest = async (record) => {
-    // Save to Supabase if available
+    // Run full audit engine before saving — flags written once, stored permanently
+    const audited = runAuditFlags(record, invoices);
     if (usingSupabase) {
-      await saveClientInvoice(record);
+      await saveClientInvoice(audited);
     }
-    // Always keep local state in sync
     setInvoices(prev => {
-      const exists = prev.findIndex(i => i.id === record.id);
+      const exists = prev.findIndex(i => i.id === audited.id);
       const updated = exists >= 0
-        ? prev.map((i, idx) => idx === exists ? record : i)
-        : [record, ...prev];
+        ? prev.map((i, idx) => idx === exists ? audited : i)
+        : [audited, ...prev];
       if (!usingSupabase) store.set(STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
       setSC(updated.length);
       return updated;
@@ -593,17 +593,45 @@ export default function App() {
 
   // Batch import — NEVER overwrites existing records. Skips any ID already in DB.
   const handleBatchIngest = async (record) => {
+    // Run full audit engine before saving — flags written once, stored permanently
+    const audited = runAuditFlags(record, invoices);
     if (usingSupabase) {
-      const result = await saveNewClientInvoice(record);
-      if (result !== 'saved') return; // skipped (duplicate) — don't update local state
+      const result = await saveNewClientInvoice(audited);
+      if (result !== 'saved') return;
     }
     setInvoices(prev => {
-      if (prev.some(i => i.id === record.id)) return prev; // already in local state
-      const updated = [record, ...prev];
+      if (prev.some(i => i.id === audited.id)) return prev;
+      const updated = [audited, ...prev];
       if (!usingSupabase) store.set(STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
       setSC(updated.length);
       return updated;
     });
+  };
+
+  // Re-audit all existing invoices — updates ENG- flags in Supabase with current baselines.
+  // Run this once after initial data load, or whenever the vendor rate table changes.
+  // Does NOT re-run automatically on page load.
+  const handleReauditAll = async () => {
+    setShowAdminMenu(false);
+    const count = filteredInvoices.length;
+    if (!confirm(`Re-audit all ${count} invoices with the current engine?\n\nThis updates stored flags in Supabase. Manual flags are preserved. This may take up to ${Math.round(count * 0.3)}s.`)) return;
+
+    const reaudited = filteredInvoices.map(inv => runAuditFlags(inv, filteredInvoices));
+
+    if (usingSupabase) {
+      for (const inv of reaudited) {
+        await saveClientInvoice(inv);
+      }
+    }
+    setInvoices(prev => {
+      const updated = prev.map(p => {
+        const r = reaudited.find(r => r.id === p.id);
+        return r || p;
+      });
+      setSC(updated.length);
+      return updated;
+    });
+    alert(`Re-audit complete — ${reaudited.length} invoices updated with engine findings.`);
   };
 
   // Client-filtered data
@@ -660,6 +688,7 @@ export default function App() {
                   </button>
                 ))}
                 <div style={{ height: 1, background: S.border, margin: "4px 14px" }} />
+                <button onClick={handleReauditAll} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#d97706", cursor: "pointer", fontWeight: 600 }}>⚡ Re-Audit All Invoices</button>
                 <button onClick={() => { if (confirm("Reset all data to seed invoices? This cannot be undone.")) handleReset(); }} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#dc2626", cursor: "pointer" }}>↺ Reset to Seed Data</button>
               </div>
               <div style={{ padding: "8px 14px", borderTop: `1px solid ${S.border}`, fontSize: 9, color: S.dim }}>

@@ -219,6 +219,7 @@ export const LIFECYCLE_DATA = {
 };
 
 export const FLAG_META = {
+  // ── Manually assigned flags (human judgment) ────────────────────────────────
   "MISDIAGNOSIS":{c:"#dc2626",l:"Misdiagnosis"},"HIGHEST-COST":{c:"#dc2626",l:"Highest Cost"},"PHANTOM-PART":{c:"#dc2626",l:"Phantom Part?"},
   "EXCESSIVE-LABOR":{c:"#ea580c",l:"Excessive Labor"},"HIGH-LABOR":{c:"#ea580c",l:"High Labor"},"LABOR-HEAVY":{c:"#ea580c",l:"Labor Heavy"},
   "COURIER-AT-MECH-RATE":{c:"#ea580c",l:"Courier @ Mech Rate"},"EXCESSIVE-VISITS":{c:"#ea580c",l:"Excess Visits"},
@@ -231,7 +232,18 @@ export const FLAG_META = {
   "CUMMINS-SUBLET":{c:"#2563eb",l:"Cummins Sublet"},"WARRANTY":{c:"#16a34a",l:"Warranty"},
   "EMISSION-CASCADE":{c:"#dc2626",l:"Emission Cascade"},"ENGINE-DEGRADATION":{c:"#ea580c",l:"Engine Degradation"},
   "HIGH-DOLLAR":{c:"#d97706",l:"High Dollar"},"CAPITAL-ATTACHMENT":{c:"#2563eb",l:"Capital Attachment"},
-  "LIFECYCLE-DATA":{c:"#7c3aed",l:"Lifecycle Data"}
+  "LIFECYCLE-DATA":{c:"#7c3aed",l:"Lifecycle Data"},
+  // ── Engine-generated flags (set automatically by runAuditFlags, prefix ENG-) ─
+  // These are replaced on every re-audit. Manual flags above are never touched.
+  "ENG-HIGH-HOURS":     {c:"#dc2626",l:"⚡ High Hours"},
+  "ENG-HIGH-COST":      {c:"#ea580c",l:"⚡ High Cost"},
+  "ENG-RATE-VIOLATION": {c:"#dc2626",l:"⚡ Rate Violation"},
+  "ENG-TRAVEL-BILLED":  {c:"#d97706",l:"⚡ Travel Billed"},
+  "ENG-REPEAT-REPAIR":  {c:"#7c3aed",l:"⚡ Repeat Repair"},
+  "ENG-MATH-ERROR":     {c:"#dc2626",l:"⚡ Math Error"},
+  "ENG-FEE-VIOLATION":  {c:"#d97706",l:"⚡ Fee Violation"},
+  "ENG-RATE-OUTLIER":   {c:"#ea580c",l:"⚡ Rate Outlier"},
+  "ENG-INCOMPLETE":     {c:"#6b7280",l:"⚡ Incomplete"},
 };
 
 export const TXN_TAG_META = {
@@ -390,6 +402,56 @@ export function audit(c, bl) {
     }
   }
   return ch;
+}
+
+// ── Audit check → ENG- flag code mapping ─────────────────────────────────────
+const AUDIT_FLAG_MAP = {
+  "Hours vs Category":  "ENG-HIGH-HOURS",
+  "Cost vs Category":   "ENG-HIGH-COST",
+  "Rate vs Contract":   "ENG-RATE-VIOLATION",
+  "Travel Billing":     "ENG-TRAVEL-BILLED",
+  "Repeat Repair":      "ENG-REPEAT-REPAIR",
+  "Math":               "ENG-MATH-ERROR",
+  "Fee Policy":         "ENG-FEE-VIOLATION",
+  "Rate vs Baseline":   "ENG-RATE-OUTLIER",
+  "Completeness":       "ENG-INCOMPLETE",
+};
+
+/**
+ * runAuditFlags — the permanent auto-flagging function.
+ *
+ * Runs the full engine pipeline on a single invoice against all known invoices,
+ * generates ENG- flags for every failing check, and returns the invoice ready
+ * to save. Call this before every Supabase write.
+ *
+ * - Manual flags (no ENG- prefix) are NEVER touched — human judgment persists.
+ * - ENG- flags are always replaced with the latest engine findings.
+ * - flagNotes is populated with a summary of all engine findings.
+ */
+export function runAuditFlags(invoice, allInvoices = []) {
+  const calcResult  = calc(invoice);
+  const bl          = buildBaselines(allInvoices);
+  const checks      = audit(calcResult, bl);
+
+  // Map FLAG-level findings to ENG- codes
+  const engFlags = checks
+    .filter(c => c.r === "FLAG" && AUDIT_FLAG_MAP[c.ck])
+    .map(c => AUDIT_FLAG_MAP[c.ck]);
+
+  // Keep manual flags, replace all ENG- flags with fresh engine output
+  const manualFlags = (invoice.flags || []).filter(f => !f.startsWith("ENG-"));
+  const flags       = [...new Set([...manualFlags, ...engFlags])];
+
+  // Build concise engine notes from all FLAG findings (not just mapped ones)
+  const allFlagChecks = checks.filter(c => c.r === "FLAG");
+  const engNotes = allFlagChecks.map(c => `[${c.ck}] ${c.d}`).join(" | ");
+
+  // Preserve any human-written flagNotes; append engine notes after a separator
+  const existingNotes = (invoice.flagNotes || "").replace(/\s*\[ENG\].*$/s, "").trim();
+  const flagNotes = [existingNotes, engNotes ? `[ENG] ${engNotes}` : ""]
+    .filter(Boolean).join(" ");
+
+  return { ...invoice, flags, flagNotes };
 }
 
 export function buildBaselines(invoices, region) {
