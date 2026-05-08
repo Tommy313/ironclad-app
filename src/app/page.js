@@ -269,7 +269,8 @@ function InvoiceTable({ data, onSaveResolution }) {
                 <strong>{c.ck}:</strong> {c.d} <span style={{ fontSize: 8, color: S.dim }}>({c.cf})</span></div>)}
             </div>; })()}
           </td></tr>}
-        </React.Fragment>)}</tbody>
+        </React.Fragment>;
+      })}</tbody>
       </table>
     </div>
   </div>;
