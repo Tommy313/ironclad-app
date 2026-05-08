@@ -1,7 +1,39 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "../lib/supabase-browser";
+
+// ── Engine version ─────────────────────────────────────────────────────────────
+const ENGINE_VERSION = "v1.3";
+
+// ── Error boundary ────────────────────────────────────────────────────────────
+// Catches unhandled render errors so the whole app doesn't go blank.
+// Class component required — hooks can't do this.
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("[Ironclad] render error:", error, info); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div style={{ padding: 40, textAlign: "center", fontFamily: "sans-serif" }}>
+        <div style={{ fontSize: 32, marginBottom: 16 }}>⚠️</div>
+        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: "#1a2744" }}>Something went wrong</div>
+        <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20, maxWidth: 400, margin: "0 auto 20px" }}>
+          {this.state.error.message || "An unexpected error occurred."}
+        </div>
+        <button onClick={() => this.setState({ error: null })}
+          style={{ padding: "10px 24px", background: "#1a2744", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 700 }}>
+          Try again
+        </button>
+        <button onClick={() => window.location.reload()}
+          style={{ marginLeft: 12, padding: "10px 24px", background: "transparent", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", fontSize: 14 }}>
+          Reload page
+        </button>
+      </div>
+    );
+  }
+}
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { AGREEMENTS, RESIDENT_TECH, SEED_INVOICES, SEED_TRANSACTIONS, LIFECYCLE_DATA,
   FLAG_META, TXN_TAG_META, CATEGORIES, REGIONS, calc, audit, buildBaselines, lifecycleRisk, runAuditFlags,
@@ -11,6 +43,7 @@ import IngestPanel from "../components/IngestPanel";
 import BatchIngestPanel from "../components/BatchIngestPanel";
 import VendorPanel from "../components/VendorPanel";
 import ReportPanel from "../components/ReportPanel";
+import OnboardingFlow from "../components/OnboardingFlow";
 import { AIChatPanel, AIChatButton } from "../components/AIChatPanel";
 import {
   isSupabaseConfigured,
@@ -19,7 +52,8 @@ import {
   deleteAllClientInvoices,
   getAllClientTransactions, saveClientTransaction,
   bulkSeedInvoices, bulkSeedTransactions,
-  getVendors, saveVendor
+  getVendors, saveVendor,
+  saveReportSnapshot
 } from "../lib/supabase";
 
 const S = { bg: "#f0f1f5", card: "#ffffff", border: "#d5d8e0", accent: "#4a7fd4", text: "#3a3f4b", dim: "#8b919e", bright: "#1d2028", shadow: "0 1px 3px rgba(0,0,0,0.06)" };
@@ -40,7 +74,8 @@ function Dashboard({ data, txns, activeClient }) {
     <div style={{ fontSize: 13, color: S.dim, maxWidth: 400, margin: "0 auto", lineHeight: 1.6 }}>Use Ingest Invoice or Batch Import to add invoices. They'll appear here and feed the audit engine automatically.</div>
   </div>;
 
-  const c = data.map(calc);
+  // useMemo: only recompute when data changes, not on every parent render
+  const c = useMemo(() => data.map(calc), [data]);
   const tot = c.reduce((s, i) => s + i.total, 0), lab = c.reduce((s, i) => s + i.labor, 0), pts = c.reduce((s, i) => s + i.parts, 0);
   const actionFlags = c.filter(i => i.flags.some(f => ["MISDIAGNOSIS", "EXCESSIVE-LABOR", "HIGH-LABOR", "LABOR-HEAVY", "HIGHEST-COST", "PHANTOM-PART", "COURIER-AT-MECH-RATE", "UNDOCUMENTED-CHARGE", "WRONG-FLUID"].includes(f))).length;
   const bl = buildBaselines(data);
@@ -122,8 +157,10 @@ function InvoiceTable({ data, onSaveResolution }) {
   const [filt,   setFilt]   = useState("all");
   const [sortBy, setSortBy] = useState("flags"); // "flags" | "date" | "total"
 
-  const c  = data.map(calc);
-  const bl = buildBaselines(data);
+  // Memoized — only recomputes when the invoice data actually changes.
+  // Prevents calc() running on every React render (was O(n) per render).
+  const c  = useMemo(() => data.map(calc), [data]);
+  const bl = useMemo(() => buildBaselines(data), [data]);
 
   // Progressive disclosure: apply filter, then sort flagged to top by default
   const filtered = filt === "all" ? c
@@ -578,6 +615,7 @@ export default function App() {
   const [vendors, setVendors] = useState([]);
   const [showIngest,      setShowIngest]      = useState(false);
   const [showBatchIngest, setShowBatchIngest] = useState(false);
+  const [showOnboarding,  setShowOnboarding]  = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [showAdminMenu, setShowAdminMenu] = useState(false);
   const [usingSupabase, setUsingSupabase] = useState(false);
@@ -648,15 +686,14 @@ export default function App() {
   useEffect(() => { if (!loaded || usingSupabase) return; (async () => { try { await store.set(TXN_STORAGE_KEY, JSON.stringify(txns)); setTC(txns.length); } catch {} })(); }, [txns, loaded, usingSupabase]);
   useEffect(() => { if (!loaded || usingSupabase) return; (async () => { try { await store.set(CLIENT_KEY, JSON.stringify(clients)); } catch {} })(); }, [clients, loaded, usingSupabase]);
 
-  const handleAddClient = async () => {
-    const name = newClientName.trim();
+  const handleAddClient = async (nameOverride) => {
+    const name = (nameOverride || newClientName).trim();
     if (!name || clients.includes(name)) return;
     if (usingSupabase) await addClient(name);
     else { const updated = [...clients, name]; await store.set(CLIENT_KEY, JSON.stringify(updated)); }
     setClients(prev => [...prev, name]);
     setActiveClient(name);
-    setNewClientName("");
-    setShowClientAdd(false);
+    if (!nameOverride) { setNewClientName(""); setShowClientAdd(false); }
   };
 
   const handleExport = () => {
@@ -707,9 +744,14 @@ export default function App() {
     });
   };
 
+  // Derive client_id slug from a name — matches the format used in the clients SQL table
+  const toClientId = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
   const handleIngest = async (record) => {
-    // Run full audit engine before saving — flags written once, stored permanently
-    const audited = runAuditFlags(record, invoices, vendors);
+    // Enforce client FK — stamp client_id on every saved invoice
+    const clientName = activeClient !== "all" ? activeClient : (record.client || "Ferrous");
+    const withClient = { ...record, client: clientName, client_id: toClientId(clientName) };
+    const audited = runAuditFlags(withClient, invoices, vendors);
     if (usingSupabase) {
       await saveClientInvoice(audited);
     }
@@ -726,8 +768,9 @@ export default function App() {
 
   // Batch import — NEVER overwrites existing records. Skips any ID already in DB.
   const handleBatchIngest = async (record) => {
-    // Run full audit engine before saving — flags written once, stored permanently
-    const audited = runAuditFlags(record, invoices, vendors);
+    const clientName = activeClient !== "all" ? activeClient : (record.client || "Ferrous");
+    const withClient = { ...record, client: clientName, client_id: toClientId(clientName) };
+    const audited = runAuditFlags(withClient, invoices, vendors);
     if (usingSupabase) {
       const result = await saveNewClientInvoice(audited);
       if (result !== 'saved') return;
@@ -782,7 +825,7 @@ export default function App() {
   const tot = filteredInvoices.reduce((s, i) => s + i.parts + i.labor + i.misc, 0);
   const txnVol = filteredTxns.reduce((s, t) => s + t.totalPrice, 0);
 
-  return <div style={{ background: S.bg, minHeight: "100vh", color: S.text, fontFamily: "'Nunito Sans','SF Pro Display',-apple-system,sans-serif" }}>
+  return <ErrorBoundary><div style={{ background: S.bg, minHeight: "100vh", color: S.text, fontFamily: "'Nunito Sans','SF Pro Display',-apple-system,sans-serif" }}>
     <div style={{ borderBottom: `1px solid ${S.border}`, padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", background: S.card, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ width: 30, height: 30, borderRadius: 10, background: `linear-gradient(135deg,${S.accent},#3a6ab8)`, boxShadow: "0 2px 6px rgba(74,127,212,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 900, color: "#fff" }}>I</div>
@@ -800,13 +843,14 @@ export default function App() {
           </select>
           {isBenchmarkMode && <span style={{ fontSize: 9, fontWeight: 700, color: S.yellow, textTransform: "uppercase", letterSpacing: .5 }}>★ Benchmark Mode</span>}
           <button onClick={() => setShowClientAdd(!showClientAdd)} className="ic-btn" style={{ padding: "4px 12px", background: showClientAdd ? "#dc2626" : S.accent + "10", border: `1.5px solid ${showClientAdd ? "#dc2626" : S.accent}30`, borderRadius: 16, color: showClientAdd ? "#fff" : S.accent, fontSize: 10, cursor: "pointer", fontWeight: 700 }}>{showClientAdd ? "×" : "+ New"}</button>
-          <button onClick={() => setShowIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: S.accent, color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(74,127,212,0.25)", marginLeft: 8 }}>📄 Ingest Invoice</button>
-          <button onClick={() => setShowBatchIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: "#16a34a", color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(22,163,74,0.25)" }}>📂 Batch Import</button>
+          <button onClick={() => setShowOnboarding(true)} className="ic-btn" style={{ padding: "6px 16px", background: "#c8972b", color: "#fff", border: "none", borderRadius: 16, fontSize: 11, cursor: "pointer", fontWeight: 800, boxShadow: "0 2px 6px rgba(200,151,43,0.35)", marginLeft: 8, letterSpacing: 0.3 }}>★ New Audit</button>
+          <button onClick={() => setShowIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: S.accent, color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(74,127,212,0.25)", marginLeft: 4 }}>📄 Ingest</button>
+          <button onClick={() => setShowBatchIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: "#16a34a", color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(22,163,74,0.25)" }}>📂 Batch</button>
         </div>
         <div style={{ fontSize: 10, color: S.dim, textAlign: "right" }}>
           <div>{filteredInvoices.length} invoices · {filteredTxns.length} deals | {f$(tot)} R&M</div>
           <div style={{ color: usingSupabase ? "#16a34a" : "#d97706", fontSize: 9 }}>
-            ● {usingSupabase ? "v7.0 — Supabase · Multi-Client · RAG" : "v7.0 — Local mode (Supabase not configured)"}
+            ● {usingSupabase ? `Engine ${ENGINE_VERSION} — Supabase · Auth · RAG` : `Engine ${ENGINE_VERSION} — Local mode`}
           </div>
         </div>
         {/* Admin gear menu */}
@@ -871,7 +915,7 @@ export default function App() {
         tab === "Equipment"     ? <EquipmentView data={filteredInvoices} /> :
         tab === "Transactions"  ? <TransactionsView txns={filteredTxns} /> :
         tab === "Vendors"       ? <VendorPanel vendors={vendors} onSave={handleSaveVendor} /> :
-        tab === "Report"        ? <ReportPanel invoices={filteredInvoices} vendors={vendors} client={activeClient || "Ferrous Process & Trading"} /> :
+        tab === "Report"        ? <ReportPanel invoices={filteredInvoices} vendors={vendors} client={activeClient || "Ferrous Process & Trading"} onSnapshotSave={saveReportSnapshot} /> :
                                   <AgreementView />}
     </div>
     {showIngest && <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
@@ -900,7 +944,18 @@ export default function App() {
         />
       </div>
     </div>}
+    {showOnboarding && (
+      <OnboardingFlow
+        onClose={() => setShowOnboarding(false)}
+        onClientCreated={async (name) => { await handleAddClient(name); setActiveClient(name); }}
+        onGoToTab={(t) => setTab(t)}
+        onReauditAll={handleReauditAll}
+        onBatchImport={() => setShowBatchIngest(true)}
+        existingClients={auditClients}
+        vendors={vendors}
+      />
+    )}
     <AIChatButton onClick={() => setChatOpen(true)} />
     <AIChatPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} />
-  </div>;
+  </div></ErrorBoundary>;
 }

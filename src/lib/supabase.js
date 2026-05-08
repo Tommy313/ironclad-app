@@ -310,3 +310,50 @@ export async function bulkSeedTransactions(txns) {
   }
   return { success, failed };
 }
+
+// ─── Report Snapshots ─────────────────────────────────────────────────────────
+
+export async function saveReportSnapshot(snapshot) {
+  if (!supabase) {
+    // Fallback: localStorage only (no Supabase configured)
+    try {
+      const existing = JSON.parse(localStorage.getItem('ironclad_report_snapshots') || '[]');
+      existing.unshift(snapshot);
+      localStorage.setItem('ironclad_report_snapshots', JSON.stringify(existing.slice(0, 20)));
+    } catch {}
+    return null;
+  }
+  const row = {
+    exported_at:      snapshot.exportedAt || new Date().toISOString(),
+    client:           snapshot.client,
+    filename:         snapshot.filename,
+    date_range_start: snapshot.dateRange?.start || null,
+    date_range_end:   snapshot.dateRange?.end   || null,
+    invoice_count:    snapshot.invoiceCount,
+    finding_count:    snapshot.findingCount,
+    total_exposure:   snapshot.totalExposure,
+    findings:         snapshot.findings   || [],
+    benchmarks:       snapshot.benchmarkSummary || [],
+  };
+  const { data, error } = await supabase.from('report_snapshots').insert(row).select('id').single();
+  if (error) {
+    console.error('[supabase] saveReportSnapshot:', error.message);
+    // Always also write to localStorage as backup
+    try {
+      const existing = JSON.parse(localStorage.getItem('ironclad_report_snapshots') || '[]');
+      existing.unshift(snapshot);
+      localStorage.setItem('ironclad_report_snapshots', JSON.stringify(existing.slice(0, 20)));
+    } catch {}
+    return null;
+  }
+  return data?.id;
+}
+
+export async function getReportSnapshots(clientFilter = null) {
+  if (!supabase) return [];
+  let query = supabase.from('report_snapshots').select('*').order('exported_at', { ascending: false }).limit(50);
+  if (clientFilter) query = query.eq('client', clientFilter);
+  const { data, error } = await query;
+  if (error) { console.error('[supabase] getReportSnapshots:', error.message); return []; }
+  return data || [];
+}
