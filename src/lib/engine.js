@@ -432,6 +432,20 @@ const AUDIT_FLAG_MAP = {
   "Completeness":       "ENG-INCOMPLETE",
 };
 
+// ── Levenshtein distance (fuzzy vendor name matching) ─────────────────────────
+// Used to catch GPT-4o extractions like "Alta Equipment Co." vs "Alta Equipment"
+// Threshold: 15% of the longer string's length → catches typos and minor variations
+function _levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1]
+        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+  return dp[m][n];
+}
+
 /**
  * runAuditFlags — the permanent auto-flagging function.
  *
@@ -442,17 +456,37 @@ const AUDIT_FLAG_MAP = {
  * - Manual flags (no ENG- prefix) are NEVER touched — human judgment persists.
  * - ENG- flags are always replaced with the latest engine findings.
  * - flagNotes is populated with a summary of all engine findings.
+ *
+ * Performance: pass precomputedBaselines when auditing many invoices in a loop.
+ * buildBaselines is O(n) — without precomputation, a batch of n invoices is O(n²).
+ * Use buildBaselines(invoices, undefined, vendors) once, then pass to every call.
  */
-export function runAuditFlags(invoice, allInvoices = [], vendorRegistry = []) {
+export function runAuditFlags(invoice, allInvoices = [], vendorRegistry = [], precomputedBaselines = null) {
   const registry = Array.isArray(vendorRegistry) ? vendorRegistry : [];
 
-  // Look up vendor in registry once — used for unknown-vendor guard AND agreement auto-detection.
-  const vendorEntry = (registry.length > 0 && invoice.vendor)
-    ? registry.find(v => v.name === invoice.vendor)
-    : null;
+  // ── Vendor lookup: exact first, then fuzzy fallback ──────────────────────────
+  // Catches GPT-4o extractions like "Alta Equipment Co." vs registry "Alta Equipment"
+  let vendorEntry = null;
+  if (registry.length > 0 && invoice.vendor) {
+    // 1. Exact match
+    vendorEntry = registry.find(v => v.name === invoice.vendor);
+    // 2. Case-insensitive match
+    if (!vendorEntry) {
+      const lower = invoice.vendor.toLowerCase();
+      vendorEntry = registry.find(v => v.name.toLowerCase() === lower);
+    }
+    // 3. Fuzzy: registry name is contained in invoice vendor string or vice versa
+    if (!vendorEntry) {
+      const lower = invoice.vendor.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+      vendorEntry = registry.find(v => {
+        const vl = v.name.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+        return lower.includes(vl) || vl.includes(lower) ||
+               _levenshtein(lower, vl) <= Math.floor(Math.max(lower.length, vl.length) * 0.15);
+      });
+    }
+  }
 
-  // Guard: if registry has data and vendor isn't in it, block processing.
-  // Only fires when registry is populated — falls back gracefully before first Supabase sync.
+  // Guard: unknown vendor — block processing when registry is populated
   if (registry.length > 0 && invoice.vendor && !vendorEntry) {
     const manualFlags = (invoice.flags || []).filter(f => !f.startsWith("ENG-"));
     const existingNotes = (invoice.flagNotes || "").replace(/\s*\[ENG\].*$/s, "").trim();
@@ -463,11 +497,7 @@ export function runAuditFlags(invoice, allInvoices = [], vendorRegistry = []) {
     };
   }
 
-  // Agreement auto-detection: if the invoice arrived with no agreement (e.g. batch import)
-  // but the vendor has an active agreement in the registry, apply it now.
-  // This enables vendor-specific compliance checks (rate vs contract, travel billing,
-  // fee policy) to fire correctly. The enriched agreement is written back to Supabase
-  // so subsequent loads already have the correct value.
+  // Agreement auto-detection: apply registry agreement_type to invoices that arrived with none
   const enrichedInvoice =
     (vendorEntry &&
      vendorEntry.agreement_type &&
@@ -476,8 +506,9 @@ export function runAuditFlags(invoice, allInvoices = [], vendorRegistry = []) {
       ? { ...invoice, agreement: vendorEntry.agreement_type }
       : invoice;
 
-  const calcResult  = calc(enrichedInvoice, registry);
-  const bl          = buildBaselines(allInvoices, undefined, registry);
+  const calcResult = calc(enrichedInvoice, registry);
+  // Use precomputed baselines when available (batch audits) — avoids O(n²) recomputation
+  const bl = precomputedBaselines || buildBaselines(allInvoices, undefined, registry);
   const checks      = audit(calcResult, bl);
 
   // Map FLAG-level findings to ENG- codes

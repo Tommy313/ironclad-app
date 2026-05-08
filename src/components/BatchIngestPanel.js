@@ -82,6 +82,15 @@ function normalizeVendor(raw, knownVendors = []) {
 }
 
 // Build a saveable invoice record from extracted fields
+// Content fingerprint: catches re-imports of the same invoice even if ID was extracted differently
+function contentFingerprint(record) {
+  const v = (record.vendor  || "").toLowerCase().replace(/\s+/g, "");
+  const d = (record.date    || "").replace(/-/g, "");
+  const l = Math.round(parseFloat(record.labor)  || 0);
+  const p = Math.round(parseFloat(record.parts)  || 0);
+  return `${v}|${d}|${l}|${p}`;
+}
+
 function buildRecord(ext, file, activeClient, index, knownVendors = []) {
   const invoiceId = ext.invoiceNumber?.value || `batch-${Date.now()}-${index}`;
   return {
@@ -134,6 +143,11 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
 
   const stopRef     = useRef(false);
   const savedIdsRef = useRef(new Set(existingIds || [])); // tracks IDs saved this session too
+
+  // Content fingerprint set — catches duplicates even when the invoice ID differs
+  // (e.g. GPT-4o extracts slightly different invoice number on re-import of same PDF)
+  // Fingerprint: vendor|date|labor|parts rounded to nearest dollar
+  const contentFingerprintsRef = useRef(new Set());
 
   // ── Folder-aware file reading ─────────────────────────────────────────────────
   // Browser drag-and-drop hands back the folder itself, not its contents.
@@ -255,12 +269,14 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
             const inv    = result.multiInvoice[j];
             const record = buildRecord(inv.visionFields, item, activeClient, `${i}-${j}`, knownVendors);
 
-            if (savedIdsRef.current.has(record.id)) {
+            const fp = contentFingerprint(record);
+            if (savedIdsRef.current.has(record.id) || contentFingerprintsRef.current.has(fp)) {
               fileSkipped++;
               skipped++;
             } else {
               await onSave(record);
               savedIdsRef.current.add(record.id);
+              contentFingerprintsRef.current.add(fp);
               ingestToRAG(record);
               fileSaved++;
               saved++;
@@ -283,14 +299,16 @@ export default function BatchIngestPanel({ knownVendors, knownEquipment, activeC
 
           const record = buildRecord(ext, item, activeClient, i, knownVendors);
 
-          if (savedIdsRef.current.has(record.id)) {
+          const fp = contentFingerprint(record);
+          if (savedIdsRef.current.has(record.id) || contentFingerprintsRef.current.has(fp)) {
             setQueue(prev => prev.map((it, idx) =>
-              idx === i ? { ...it, status: "skipped", invoiceId: record.id, vendor: record.vendor, error: "Duplicate ID" } : it
+              idx === i ? { ...it, status: "skipped", invoiceId: record.id, vendor: record.vendor, error: "Duplicate" } : it
             ));
             skipped++;
           } else {
             await onSave(record);
             savedIdsRef.current.add(record.id);
+            contentFingerprintsRef.current.add(fp);
             ingestToRAG(record);
 
             setQueue(prev => prev.map((it, idx) =>

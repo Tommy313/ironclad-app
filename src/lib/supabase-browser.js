@@ -8,9 +8,15 @@
 
 import { createBrowserClient } from '@supabase/ssr';
 
+// Singleton — one client instance per browser session.
+// Avoids unnecessary reconnections and auth listener duplication.
+let _client = null;
+
 export function createSupabaseBrowser() {
-  return createBrowserClient(
+  if (_client) return _client;
+  _client = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   );
+  return _client;
 }

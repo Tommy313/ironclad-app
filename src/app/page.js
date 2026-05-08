@@ -110,38 +110,123 @@ function Dashboard({ data, txns, activeClient }) {
   </div>;
 }
 
-function InvoiceTable({ data }) {
-  const [exp, setExp] = useState(null);
-  const [filt, setFilt] = useState("all");
-  const c = data.map(calc);
+const RESOLUTION_FLAGS = ["RESOLVED", "DISPUTED", "CREDITED"];
+const RESOLUTION_META  = {
+  RESOLVED: { label: "Resolved",  color: "#16a34a", bg: "#16a34a12" },
+  DISPUTED: { label: "Disputed",  color: "#d97706", bg: "#d9770612" },
+  CREDITED: { label: "Credited",  color: "#2563eb", bg: "#2563eb12" },
+};
+
+function InvoiceTable({ data, onSaveResolution }) {
+  const [exp,    setExp]    = useState(null);
+  const [filt,   setFilt]   = useState("all");
+  const [sortBy, setSortBy] = useState("flags"); // "flags" | "date" | "total"
+
+  const c  = data.map(calc);
   const bl = buildBaselines(data);
-  const shown = filt === "all" ? c : filt === "flagged" ? c.filter(i => i.flags.length > 0) : c.filter(i => i.vendor === filt || i.allFlags.includes(filt));
+
+  // Progressive disclosure: apply filter, then sort flagged to top by default
+  const filtered = filt === "all" ? c
+    : filt === "flagged"   ? c.filter(i => (i.flags || []).some(f => f.startsWith("ENG-")))
+    : filt === "resolved"  ? c.filter(i => (i.allFlags || []).includes("RESOLVED"))
+    : filt === "disputed"  ? c.filter(i => (i.allFlags || []).includes("DISPUTED"))
+    : c.filter(i => i.vendor === filt || (i.allFlags || []).includes(filt));
+
+  const shown = [...filtered].sort((a, b) => {
+    if (sortBy === "flags") {
+      const aEng = (a.flags || []).filter(f => f.startsWith("ENG-")).length;
+      const bEng = (b.flags || []).filter(f => f.startsWith("ENG-")).length;
+      if (aEng !== bEng) return bEng - aEng; // most flags first
+    }
+    if (sortBy === "total") return b.total - a.total;
+    return new Date(b.date) - new Date(a.date); // newest first
+  });
+
+  const engFlagCount = c.filter(i => (i.flags || []).some(f => f.startsWith("ENG-"))).length;
   const vendors = [...new Set(data.map(i => i.vendor))];
-  const filters = ["all", "flagged", ...vendors, "MISDIAGNOSIS", "EXCESSIVE-LABOR", "HIGHEST-COST", "GOOD-TRANSPARENCY", "EMISSION-PATTERN", "CROSS-VENDOR-COMP", "ESTIMATE", "PM-SERVICE", "WARRANTY"];
+  const filters = ["all", "flagged", "disputed", "resolved", ...vendors];
+
+  const resolutionOf = (inv) => RESOLUTION_FLAGS.find(rf => (inv.allFlags || []).includes(rf));
+
   return <div>
-    <div style={{ display: "flex", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
-      {filters.map(f => <button key={f} onClick={() => setFilt(f)} className="ic-btn" style={{ padding: "5px 12px", borderRadius: 20, border: `1.5px solid ${filt === f ? S.accent : S.border}`, background: filt === f ? S.accent + "12" : "transparent", color: filt === f ? S.accent : S.dim, fontSize: 10, cursor: "pointer", fontWeight: filt === f ? 700 : 500, transition: "all .15s" }}>{f === "all" ? `All (${c.length})` : f === "flagged" ? "Flagged" : (FLAG_META[f]?.l || f)}</button>)}
+    {/* Filter bar */}
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 4, flex: 1, flexWrap: "wrap" }}>
+        {filters.map(f => {
+          const count = f === "all" ? c.length : f === "flagged" ? engFlagCount
+            : f === "disputed" ? c.filter(i => (i.allFlags||[]).includes("DISPUTED")).length
+            : f === "resolved" ? c.filter(i => (i.allFlags||[]).includes("RESOLVED")).length
+            : c.filter(i => i.vendor === f).length;
+          return <button key={f} onClick={() => setFilt(f)} className="ic-btn" style={{
+            padding: "5px 12px", borderRadius: 20,
+            border: `1.5px solid ${filt === f ? (f === "flagged" ? "#dc2626" : f === "disputed" ? "#d97706" : f === "resolved" ? "#16a34a" : S.accent) : S.border}`,
+            background: filt === f ? (f === "flagged" ? "#dc262612" : f === "disputed" ? "#d9770612" : f === "resolved" ? "#16a34a12" : S.accent + "12") : "transparent",
+            color: filt === f ? (f === "flagged" ? "#dc2626" : f === "disputed" ? "#d97706" : f === "resolved" ? "#16a34a" : S.accent) : S.dim,
+            fontSize: 10, cursor: "pointer", fontWeight: filt === f ? 700 : 500, transition: "all .15s"
+          }}>{f === "all" ? `All (${count})` : f === "flagged" ? `⚑ Flagged (${count})` : f === "disputed" ? `⚠ Disputed (${count})` : f === "resolved" ? `✓ Resolved (${count})` : `${f} (${count})`}</button>;
+        })}
+      </div>
+      {/* Sort controls */}
+      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+        <span style={{ fontSize: 9, color: S.dim, textTransform: "uppercase", letterSpacing: .5 }}>Sort:</span>
+        {[["flags","Flags↑"],["total","Total↑"],["date","Date↑"]].map(([v,l]) =>
+          <button key={v} onClick={() => setSortBy(v)} className="ic-btn" style={{ padding: "3px 9px", borderRadius: 12, border: `1px solid ${sortBy===v ? S.accent : S.border}`, background: sortBy===v ? S.accent+"15" : "transparent", color: sortBy===v ? S.accent : S.dim, fontSize: 9, cursor: "pointer", fontWeight: sortBy===v ? 700 : 400 }}>{l}</button>
+        )}
+      </div>
     </div>
+
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
         <thead><tr style={{ borderBottom: `2px solid ${S.accent}30` }}>
-          {["Order", "Date", "Equipment", "Vendor", "Labor", "Impl.Hrs", "Exp.", "Δ", "Total", "Flags"].map(h =>
-            <th key={h} style={{ padding: "6px 8px", textAlign: ["Labor", "Impl.Hrs", "Exp.", "Δ", "Total"].includes(h) ? "right" : "left", color: S.dim, fontSize: 9, textTransform: "uppercase" }}>{h}</th>)}
+          {["Flags", "Vendor", "Total", "Δ hrs", "Invoice", "Date", "Equipment", "Labor", "Status"].map(h =>
+            <th key={h} style={{ padding: "6px 8px", textAlign: ["Total","Δ hrs","Labor"].includes(h) ? "right" : "left", color: S.dim, fontSize: 9, textTransform: "uppercase", letterSpacing: .5 }}>{h}</th>)}
         </tr></thead>
-        <tbody>{shown.map(inv => <React.Fragment key={inv.id}>
-          <tr onClick={() => setExp(exp === inv.id ? null : inv.id)} style={{ cursor: "pointer", background: exp === inv.id ? S.card : "transparent", borderBottom: `1px solid ${S.border}60` }}>
-            <td style={{ padding: 8, fontWeight: 700, color: S.accent, fontFamily: "monospace", fontSize: 11 }}>{inv.id}</td>
-            <td style={{ padding: 8, fontSize: 10, color: S.dim }}>{inv.workDates}</td>
-            <td style={{ padding: 8, color: S.text }}>{inv.equipment}</td>
-            <td style={{ padding: 8, fontSize: 10, color: inv.vendor === "Alta Equipment" ? "#60a5fa" : inv.vendor === "Altorfer CAT" ? "#f59e0b" : inv.vendor === "Michigan CAT (MacAllister Machinery)" ? "#34d399" : inv.vendor === "RECO Equipment" ? "#a78bfa" : inv.vendor === "Sargents Equipment" ? "#fb923c" : inv.vendor === "Christofano Equipment" ? "#f472b6" : inv.vendor === "Summit Industrial Services" ? "#38bdf8" : inv.vendor === "National Association Supply" ? "#e879f9" : "#94a3b8" }}>{inv.vendor}{inv.agreement === "resident" ? " ★" : inv.flags?.includes("WARRANTY") ? " 🛡" : ""}</td>
-            <td style={{ padding: 8, fontFamily: "monospace", textAlign: "right" }}>{f$2(inv.labor)}</td>
-            <td style={{ padding: 8, fontFamily: "monospace", textAlign: "right", color: inv.variance != null && inv.variance > 2 ? "#dc2626" : S.text, fontWeight: inv.variance > 2 ? 700 : 400 }}>{fH(inv.impliedHrs)}</td>
-            <td style={{ padding: 8, fontFamily: "monospace", textAlign: "right", color: S.dim, fontSize: 10 }}>{inv.expectedHoursLow}–{inv.expectedHoursHigh}</td>
-            <td style={{ padding: 8, fontFamily: "monospace", textAlign: "right", fontWeight: 700, color: inv.variance == null ? S.dim : inv.variance > 3 ? "#dc2626" : inv.variance > 1 ? "#d97706" : "#16a34a" }}>{inv.variance != null ? (inv.variance > 0 ? "+" : "") + inv.variance.toFixed(1) : "—"}</td>
-            <td style={{ padding: 8, fontFamily: "monospace", textAlign: "right", fontWeight: 700, color: S.bright }}>{f$(inv.total)}</td>
-            <td style={{ padding: 8 }}>{inv.allFlags.slice(0, 2).map(f => <Badge key={f} flag={f} />)}{inv.allFlags.length > 2 && <span style={{ fontSize: 9, color: S.dim }}>+{inv.allFlags.length - 2}</span>}</td>
+        <tbody>{shown.map(inv => {
+          const resolution = resolutionOf(inv);
+          const engFlags   = (inv.flags || []).filter(f => f.startsWith("ENG-"));
+          const hasFinding = engFlags.length > 0;
+          const rowBg = exp === inv.id ? S.card : hasFinding ? "#dc262604" : "transparent";
+          return <React.Fragment key={inv.id}>
+          <tr onClick={() => setExp(exp === inv.id ? null : inv.id)} style={{ cursor: "pointer", background: rowBg, borderBottom: `1px solid ${S.border}60`, borderLeft: hasFinding ? `3px solid #dc262640` : `3px solid transparent` }}>
+            {/* COLUMN 1: Flags — F-pattern: eyes land here first */}
+            <td style={{ padding: "7px 8px", minWidth: 90 }}>
+              {engFlags.slice(0, 2).map(f => <Badge key={f} flag={f} />)}
+              {engFlags.length > 2 && <span style={{ fontSize: 9, color: S.dim }}>+{engFlags.length - 2}</span>}
+              {engFlags.length === 0 && <span style={{ fontSize: 9, color: "#16a34a" }}>✓ Clean</span>}
+            </td>
+            {/* COLUMN 2: Vendor */}
+            <td style={{ padding: "7px 8px", fontSize: 10, fontWeight: 600, color: inv.vendor === "Alta Equipment" ? "#60a5fa" : inv.vendor === "Altorfer CAT" ? "#f59e0b" : inv.vendor === "Michigan CAT (MacAllister Machinery)" ? "#34d399" : inv.vendor === "RECO Equipment" ? "#a78bfa" : inv.vendor === "Summit Industrial Services" ? "#38bdf8" : "#94a3b8", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {inv.vendor}{inv.agreement === "resident" ? " ★" : ""}
+            </td>
+            {/* COLUMN 3: Total — money is what matters */}
+            <td style={{ padding: "7px 8px", fontFamily: "monospace", textAlign: "right", fontWeight: 700, color: S.bright, fontSize: 12 }}>{f$(inv.total)}</td>
+            {/* COLUMN 4: Hour variance */}
+            <td style={{ padding: "7px 8px", fontFamily: "monospace", textAlign: "right", fontWeight: 700, color: inv.variance == null ? S.dim : inv.variance > 3 ? "#dc2626" : inv.variance > 1 ? "#d97706" : "#16a34a" }}>
+              {inv.variance != null ? (inv.variance > 0 ? "+" : "") + inv.variance.toFixed(1) + "h" : "—"}
+            </td>
+            {/* COLUMN 5-8: Reference data */}
+            <td style={{ padding: "7px 8px", fontWeight: 600, color: S.accent, fontFamily: "monospace", fontSize: 10 }}>{inv.id}</td>
+            <td style={{ padding: "7px 8px", fontSize: 10, color: S.dim }}>{inv.date}</td>
+            <td style={{ padding: "7px 8px", fontSize: 10, color: S.text, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.equipment}</td>
+            <td style={{ padding: "7px 8px", fontFamily: "monospace", textAlign: "right", fontSize: 10 }}>{f$2(inv.labor)}</td>
+            {/* COLUMN 9: Resolution status */}
+            <td style={{ padding: "7px 8px" }} onClick={e => e.stopPropagation()}>
+              {resolution ? (
+                <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: 9, fontWeight: 700, background: RESOLUTION_META[resolution].bg, color: RESOLUTION_META[resolution].color }}>
+                  {RESOLUTION_META[resolution].label}
+                </span>
+              ) : hasFinding && onSaveResolution ? (
+                <select defaultValue="" onChange={e => { if (e.target.value) onSaveResolution(inv, e.target.value); e.target.value = ""; }}
+                  style={{ fontSize: 9, border: `1px solid ${S.border}`, borderRadius: 8, padding: "2px 5px", background: S.card, color: S.dim, cursor: "pointer" }}>
+                  <option value="">Mark…</option>
+                  <option value="DISPUTED">Disputed</option>
+                  <option value="RESOLVED">Resolved</option>
+                  <option value="CREDITED">Credited</option>
+                </select>
+              ) : null}
+            </td>
           </tr>
-          {exp === inv.id && <tr style={{ background: S.bg }}><td colSpan={10} style={{ padding: "14px 20px" }}>
+          {exp === inv.id && <tr style={{ background: S.bg }}><td colSpan={9} style={{ padding: "14px 20px" }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
               <div>
                 <div style={{ fontSize: 9, color: S.dim, textTransform: "uppercase", marginBottom: 4 }}>Description</div>
@@ -604,6 +689,15 @@ export default function App() {
     setTC(SEED_TRANSACTIONS.length);
   };
 
+  // Resolution status handler — stores DISPUTED / RESOLVED / CREDITED as manual flags
+  // Manual flags are never overwritten by the engine, so status persists through re-audits.
+  const handleSaveResolution = async (invoice, resolutionFlag) => {
+    const currentManual = (invoice.flags || []).filter(f => !f.startsWith("ENG-") && !["DISPUTED","RESOLVED","CREDITED"].includes(f));
+    const updated = { ...invoice, flags: [...currentManual, resolutionFlag] };
+    if (usingSupabase) await saveClientInvoice(updated);
+    setInvoices(prev => prev.map(i => i.id === updated.id ? updated : i));
+  };
+
   const handleSaveVendor = async (vendor) => {
     if (usingSupabase) await saveVendor(vendor);
     setVendors(prev => {
@@ -649,18 +743,26 @@ export default function App() {
   // Re-audit all existing invoices — updates ENG- flags in Supabase with current baselines.
   // Run this once after initial data load, or whenever the vendor rate table changes.
   // Does NOT re-run automatically on page load.
+  const [reauditProgress, setReauditProgress] = useState(null); // null | { done, total }
+
   const handleReauditAll = async () => {
     setShowAdminMenu(false);
     const count = filteredInvoices.length;
-    if (!confirm(`Re-audit all ${count} invoices with the current engine?\n\nThis updates stored flags in Supabase. Manual flags are preserved. This may take up to ${Math.round(count * 0.3)}s.`)) return;
+    if (!confirm(`Re-audit all ${count} invoices with the current engine?\n\nThis updates stored flags in Supabase. Manual flags are preserved.`)) return;
 
-    const reaudited = filteredInvoices.map(inv => runAuditFlags(inv, filteredInvoices, vendors));
+    // Compute baselines ONCE — avoids O(n²) recomputation on large datasets
+    const baselines = buildBaselines(filteredInvoices, undefined, vendors);
+    const reaudited = filteredInvoices.map(inv => runAuditFlags(inv, filteredInvoices, vendors, baselines));
+
+    setReauditProgress({ done: 0, total: reaudited.length });
 
     if (usingSupabase) {
-      for (const inv of reaudited) {
-        await saveClientInvoice(inv);
+      for (let i = 0; i < reaudited.length; i++) {
+        await saveClientInvoice(reaudited[i]);
+        setReauditProgress({ done: i + 1, total: reaudited.length });
       }
     }
+
     setInvoices(prev => {
       const updated = prev.map(p => {
         const r = reaudited.find(r => r.id === p.id);
@@ -669,7 +771,8 @@ export default function App() {
       setSC(updated.length);
       return updated;
     });
-    alert(`Re-audit complete — ${reaudited.length} invoices updated with engine findings.`);
+    setReauditProgress(null);
+    alert(`Re-audit complete — ${reaudited.length} invoices updated.`);
   };
 
   // Client-filtered data
@@ -741,6 +844,15 @@ export default function App() {
         </div>
       </div>
     </div>
+    {reauditProgress && (
+      <div style={{ padding: "8px 20px", background: "#d9770615", borderBottom: `1px solid #d9770640`, display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontSize: 11, color: "#d97706", fontWeight: 700 }}>⚡ Re-auditing invoices…</span>
+        <div style={{ flex: 1, maxWidth: 200, height: 4, background: "#d9770630", borderRadius: 2 }}>
+          <div style={{ height: "100%", width: `${Math.round(reauditProgress.done / reauditProgress.total * 100)}%`, background: "#d97706", borderRadius: 2, transition: "width 0.2s" }} />
+        </div>
+        <span style={{ fontSize: 11, color: "#d97706" }}>{reauditProgress.done} / {reauditProgress.total}</span>
+      </div>
+    )}
     {showClientAdd && <div style={{ padding: "10px 20px", background: S.card, borderBottom: `1px solid ${S.border}`, display: "flex", alignItems: "center", gap: 8 }}>
       <span style={{ fontSize: 10, color: S.dim }}>New audit client:</span>
       <input value={newClientName} onChange={e => setNewClientName(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAddClient()}
@@ -754,7 +866,7 @@ export default function App() {
     <div style={{ padding: "16px 20px", maxWidth: 1400, margin: "0 auto" }}>
       {!loaded ? <div style={{ textAlign: "center", padding: 40, color: S.dim }}>Loading...</div> :
         tab === "Dashboard"     ? <Dashboard data={filteredInvoices} txns={filteredTxns} activeClient={activeClient} /> :
-        tab === "Invoices"      ? <InvoiceTable data={filteredInvoices} /> :
+        tab === "Invoices"      ? <InvoiceTable data={filteredInvoices} onSaveResolution={handleSaveResolution} /> :
         tab === "Equipment"     ? <EquipmentView data={filteredInvoices} /> :
         tab === "Transactions"  ? <TransactionsView txns={filteredTxns} /> :
         tab === "Vendors"       ? <VendorPanel vendors={vendors} onSave={handleSaveVendor} /> :

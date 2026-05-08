@@ -142,13 +142,14 @@ function computeBenchmarks(invoices, vendors) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function ReportPanel({ invoices = [], vendors = [], client: defaultClient = '' }) {
+export default function ReportPanel({ invoices = [], vendors = [], client: defaultClient = '', onSnapshotSave }) {
   const [client, setClient]           = useState(defaultClient || 'Ferrous Process & Trading');
   const [dateStart, setDateStart]     = useState('');
   const [dateEnd, setDateEnd]         = useState('');
   const [generating, setGenerating]   = useState(false);
   const [error, setError]             = useState(null);
   const [previewOpen, setPreviewOpen] = useState(true);
+  const [lastExport, setLastExport]   = useState(null); // { date, findingCount, exposure, filename }
 
   // Compute findings and benchmarks from live data
   const findings   = useMemo(() => computeFindings(invoices, vendors),   [invoices, vendors]);
@@ -197,15 +198,46 @@ export default function ReportPanel({ invoices = [], vendors = [], client: defau
       }
 
       // Trigger file download
-      const blob     = await res.blob();
-      const url      = URL.createObjectURL(blob);
-      const anchor   = document.createElement('a');
-      anchor.href    = url;
-      anchor.download = `Ironclad_Brief_${client.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.pdf`;
+      const blob      = await res.blob();
+      const url       = URL.createObjectURL(blob);
+      const filename  = `Ironclad_Brief_${client.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.pdf`;
+      const anchor    = document.createElement('a');
+      anchor.href     = url;
+      anchor.download = filename;
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);
       URL.revokeObjectURL(url);
+
+      // Audit snapshot — record what findings existed at export time
+      // This is the defensible record: "at the time of delivery, these were the findings"
+      const snapshot = {
+        exportedAt:    new Date().toISOString(),
+        filename,
+        client,
+        dateRange:     { start: dateStart || autoDateRange.start, end: dateEnd || autoDateRange.end },
+        invoiceCount:  invoices.length,
+        findingCount:  topFindings.length,
+        totalExposure,
+        findings:      topFindings.map(f => ({
+          title:       f.title,
+          vendor:      f.vendor,
+          invoiceId:   f.invoiceId,
+          dollarImpact: f.dollarImpact,
+          flag:        f.flag,
+        })),
+        benchmarkSummary: benchmarks.map(b => ({
+          vendor: b.vendor, billedRate: b.billedRate, contractRate: b.contractRate, status: b.status
+        })),
+      };
+      setLastExport({ date: new Date().toLocaleDateString(), findingCount: topFindings.length, exposure: totalExposure, filename });
+      if (onSnapshotSave) onSnapshotSave(snapshot);
+      // Also persist to localStorage as a fallback audit trail
+      try {
+        const existing = JSON.parse(localStorage.getItem('ironclad_report_snapshots') || '[]');
+        existing.unshift(snapshot);
+        localStorage.setItem('ironclad_report_snapshots', JSON.stringify(existing.slice(0, 20)));
+      } catch {}
 
     } catch (err) {
       console.error('[ReportPanel] generate error:', err);
@@ -266,6 +298,12 @@ export default function ReportPanel({ invoices = [], vendors = [], client: defau
       {!RAG_URL && (
         <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#92400e' }}>
           ⚠️ NEXT_PUBLIC_RAILWAY_URL not set — PDF generation requires the RAG backend.
+        </div>
+      )}
+      {lastExport && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #16a34a', borderRadius: 6, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#15803d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>✅ Report exported {lastExport.date} — {lastExport.findingCount} findings, {f$(lastExport.exposure)} exposure</span>
+          <span style={{ fontSize: 11, color: '#64748b' }}>{lastExport.filename}</span>
         </div>
       )}
       {error && (
