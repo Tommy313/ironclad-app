@@ -445,22 +445,38 @@ const AUDIT_FLAG_MAP = {
  */
 export function runAuditFlags(invoice, allInvoices = [], vendorRegistry = []) {
   const registry = Array.isArray(vendorRegistry) ? vendorRegistry : [];
+
+  // Look up vendor in registry once — used for unknown-vendor guard AND agreement auto-detection.
+  const vendorEntry = (registry.length > 0 && invoice.vendor)
+    ? registry.find(v => v.name === invoice.vendor)
+    : null;
+
   // Guard: if registry has data and vendor isn't in it, block processing.
   // Only fires when registry is populated — falls back gracefully before first Supabase sync.
-  if (registry.length > 0 && invoice.vendor) {
-    const known = registry.find(v => v.name === invoice.vendor);
-    if (!known) {
-      const manualFlags = (invoice.flags || []).filter(f => !f.startsWith("ENG-"));
-      const existingNotes = (invoice.flagNotes || "").replace(/\s*\[ENG\].*$/s, "").trim();
-      return {
-        ...invoice,
-        flags: [...new Set([...manualFlags, "ENG-UNKNOWN-VENDOR"])],
-        flagNotes: [existingNotes, `[ENG] [Unknown Vendor] "${invoice.vendor}" is not in the vendor registry — add this vendor before auditing.`].filter(Boolean).join(" ")
-      };
-    }
+  if (registry.length > 0 && invoice.vendor && !vendorEntry) {
+    const manualFlags = (invoice.flags || []).filter(f => !f.startsWith("ENG-"));
+    const existingNotes = (invoice.flagNotes || "").replace(/\s*\[ENG\].*$/s, "").trim();
+    return {
+      ...invoice,
+      flags: [...new Set([...manualFlags, "ENG-UNKNOWN-VENDOR"])],
+      flagNotes: [existingNotes, `[ENG] [Unknown Vendor] "${invoice.vendor}" is not in the vendor registry — add this vendor before auditing.`].filter(Boolean).join(" ")
+    };
   }
 
-  const calcResult  = calc(invoice, registry);
+  // Agreement auto-detection: if the invoice arrived with no agreement (e.g. batch import)
+  // but the vendor has an active agreement in the registry, apply it now.
+  // This enables vendor-specific compliance checks (rate vs contract, travel billing,
+  // fee policy) to fire correctly. The enriched agreement is written back to Supabase
+  // so subsequent loads already have the correct value.
+  const enrichedInvoice =
+    (vendorEntry &&
+     vendorEntry.agreement_type &&
+     vendorEntry.agreement_type !== "none" &&
+     (!invoice.agreement || invoice.agreement === "none"))
+      ? { ...invoice, agreement: vendorEntry.agreement_type }
+      : invoice;
+
+  const calcResult  = calc(enrichedInvoice, registry);
   const bl          = buildBaselines(allInvoices, undefined, registry);
   const checks      = audit(calcResult, bl);
 
@@ -470,7 +486,7 @@ export function runAuditFlags(invoice, allInvoices = [], vendorRegistry = []) {
     .map(c => AUDIT_FLAG_MAP[c.ck]);
 
   // Keep manual flags, replace all ENG- flags with fresh engine output
-  const manualFlags = (invoice.flags || []).filter(f => !f.startsWith("ENG-"));
+  const manualFlags = (enrichedInvoice.flags || []).filter(f => !f.startsWith("ENG-"));
   const flags       = [...new Set([...manualFlags, ...engFlags])];
 
   // Build concise engine notes from all FLAG findings (not just mapped ones)
@@ -478,11 +494,11 @@ export function runAuditFlags(invoice, allInvoices = [], vendorRegistry = []) {
   const engNotes = allFlagChecks.map(c => `[${c.ck}] ${c.d}`).join(" | ");
 
   // Preserve any human-written flagNotes; append engine notes after a separator
-  const existingNotes = (invoice.flagNotes || "").replace(/\s*\[ENG\].*$/s, "").trim();
+  const existingNotes = (enrichedInvoice.flagNotes || "").replace(/\s*\[ENG\].*$/s, "").trim();
   const flagNotes = [existingNotes, engNotes ? `[ENG] ${engNotes}` : ""]
     .filter(Boolean).join(" ");
 
-  return { ...invoice, flags, flagNotes };
+  return { ...enrichedInvoice, flags, flagNotes };
 }
 
 export function buildBaselines(invoices, region, vendorRegistry = []) {

@@ -4,9 +4,17 @@
  */
 
 const RAILWAY_URL = process.env.NEXT_PUBLIC_RAILWAY_URL;
+const API_KEY     = process.env.NEXT_PUBLIC_INGEST_API_KEY;  // shared key for all backend calls
 
 if (!RAILWAY_URL && typeof window !== 'undefined') {
   console.warn('[RAG] NEXT_PUBLIC_RAILWAY_URL not set — AI features disabled');
+}
+
+// All requests to the RAG backend include this header
+function authHeaders() {
+  return API_KEY
+    ? { 'Content-Type': 'application/json', 'x-api-key': API_KEY }
+    : { 'Content-Type': 'application/json' };
 }
 
 /**
@@ -26,7 +34,7 @@ export async function askIronclad(question, options = {}) {
 
   const response = await fetch(`${RAILWAY_URL}/query/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({ question, threshold, topK, tables })
   });
 
@@ -49,7 +57,7 @@ export async function semanticSearch(query, options = {}) {
 
   const response = await fetch(`${RAILWAY_URL}/search`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({ query, threshold, limit })
   });
 

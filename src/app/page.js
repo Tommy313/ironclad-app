@@ -1,5 +1,7 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { createSupabaseBrowser } from "../lib/supabase-browser";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { AGREEMENTS, RESIDENT_TECH, SEED_INVOICES, SEED_TRANSACTIONS, LIFECYCLE_DATA,
   FLAG_META, TXN_TAG_META, CATEGORIES, REGIONS, calc, audit, buildBaselines, lifecycleRisk, runAuditFlags,
@@ -8,6 +10,7 @@ import { AGREEMENTS, RESIDENT_TECH, SEED_INVOICES, SEED_TRANSACTIONS, LIFECYCLE_
 import IngestPanel from "../components/IngestPanel";
 import BatchIngestPanel from "../components/BatchIngestPanel";
 import VendorPanel from "../components/VendorPanel";
+import ReportPanel from "../components/ReportPanel";
 import { AIChatPanel, AIChatButton } from "../components/AIChatPanel";
 import {
   isSupabaseConfigured,
@@ -438,7 +441,7 @@ function DataTab({ data, txns, onExport, onReset, count, txnCount }) {
   </div>;
 }
 
-const TABS = ["Dashboard", "Invoices", "Equipment", "Transactions", "Vendors", "Agreements"];
+const TABS = ["Dashboard", "Invoices", "Equipment", "Transactions", "Vendors", "Report", "Agreements"];
 
 // localStorage fallback adapter (used when Supabase is not yet configured)
 const store = {
@@ -447,6 +450,28 @@ const store = {
 };
 
 export default function App() {
+  const router = useRouter();
+  const supabaseBrowser = createSupabaseBrowser();
+
+  // ── Auth state ────────────────────────────────────────────────────────────
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    // Get initial session
+    supabaseBrowser.auth.getUser().then(({ data: { user } }) => setUser(user));
+    // Listen for auth changes (sign out elsewhere, token refresh, etc.)
+    const { data: { subscription } } = supabaseBrowser.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (!session?.user) router.replace("/login");
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    await supabaseBrowser.auth.signOut();
+    router.replace("/login");
+  }, []);
+
   const [tab, setTab] = useState("Dashboard");
   const [invoices, setInvoices] = useState(SEED_INVOICES);
   const [txns, setTxns] = useState(SEED_TRANSACTIONS);
@@ -703,10 +728,13 @@ export default function App() {
                 <div style={{ height: 1, background: S.border, margin: "4px 14px" }} />
                 <button onClick={handleReauditAll} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#d97706", cursor: "pointer", fontWeight: 600 }}>⚡ Re-Audit All Invoices</button>
                 <button onClick={() => { if (confirm("Reset all data to seed invoices? This cannot be undone.")) handleReset(); }} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#dc2626", cursor: "pointer" }}>↺ Reset to Seed Data</button>
+                <div style={{ height: 1, background: S.border, margin: "4px 14px" }} />
+                <button onClick={handleLogout} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#dc2626", cursor: "pointer", fontWeight: 600 }}>🔓 Sign Out</button>
               </div>
               <div style={{ padding: "8px 14px", borderTop: `1px solid ${S.border}`, fontSize: 9, color: S.dim }}>
                 {usingSupabase ? "✓ Supabase connected" : "⚠ Supabase not configured"}<br />
-                {invoices.length} invoices · {txns.length} transactions · {clients.length} clients
+                {invoices.length} invoices · {txns.length} transactions · {clients.length} clients<br />
+                {user && <span style={{ color: "#16a34a" }}>● {user.email}</span>}
               </div>
             </div>
           </>}
@@ -730,6 +758,7 @@ export default function App() {
         tab === "Equipment"     ? <EquipmentView data={filteredInvoices} /> :
         tab === "Transactions"  ? <TransactionsView txns={filteredTxns} /> :
         tab === "Vendors"       ? <VendorPanel vendors={vendors} onSave={handleSaveVendor} /> :
+        tab === "Report"        ? <ReportPanel invoices={filteredInvoices} vendors={vendors} client={activeClient || "Ferrous Process & Trading"} /> :
                                   <AgreementView />}
     </div>
     {showIngest && <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
