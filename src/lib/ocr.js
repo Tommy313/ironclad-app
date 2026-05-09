@@ -89,7 +89,7 @@ function buildFixedChunks(totalPages, pagesPerInvoice = 2) {
 // ─── Multi-invoice extraction ─────────────────────────────────────────────────
 // For PDFs containing multiple concatenated invoices.
 // Returns array of {visionFields, lineItems, visionConfidence} objects.
-async function extractMultiInvoicePDF(pdf, knownVendors) {
+async function extractMultiInvoicePDF(pdf, knownVendors, pdfBase64 = null) {
   console.log(`[ocr] Multi-invoice mode: ${pdf.numPages} pages`);
 
   // Try text-based boundary detection first
@@ -114,7 +114,8 @@ async function extractMultiInvoicePDF(pdf, knownVendors) {
       const resp = await fetch(`${RAG_URL}/extract/invoice`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ pages, knownVendors }),
+        // pdfBase64 passed for text extraction; backend tries text first, Vision fallback
+        body:    JSON.stringify({ pages, pdfBase64, knownVendors }),
       });
 
       if (!resp.ok) {
@@ -164,19 +165,22 @@ export async function extractTextFromPDF(file, knownVendors = [], knownEquipment
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
+  // Convert to base64 for text-extraction path on the backend
+  // Backend will try pdf-parse first, fall back to Vision if text is sparse
+  const pdfBase64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
 
-  // ── Path 1: GPT-4o Vision (primary) ─────────────────────────────────────────
+  // ── Path 1: Smart extraction (text-first, Vision fallback) ───────────────────
   if (RAG_URL) {
     try {
 
       // Multi-invoice mode: PDFs > 5 pages are likely compiled invoice dumps
       if (pdf.numPages > 5) {
-        const invoices = await extractMultiInvoicePDF(pdf, knownVendors);
+        const invoices = await extractMultiInvoicePDF(pdf, knownVendors, pdfBase64);
         return {
           pageCount:    pdf.numPages,
           fullText:     `Multi-invoice PDF: ${invoices.length} invoices extracted from ${pdf.numPages} pages.`,
           pages:        [],
-          multiInvoice: invoices,   // array — BatchIngestPanel saves each one separately
+          multiInvoice: invoices,
         };
       }
 
@@ -186,7 +190,8 @@ export async function extractTextFromPDF(file, knownVendors = [], knownEquipment
       const resp = await fetch(`${RAG_URL}/extract/invoice`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ pages, knownVendors })
+        // Send both: backend tries text extraction from pdfBase64 first, falls back to vision pages
+        body:    JSON.stringify({ pages, pdfBase64, knownVendors })
       });
 
       if (resp.ok) {
