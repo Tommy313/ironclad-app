@@ -1,14 +1,14 @@
 'use client';
 /**
- * ReportPanel — Tier 1 Cost Intelligence Brief generator.
+ * ReportPanel â Tier 1 Cost Intelligence Brief generator.
  *
  * Computes findings from live invoice + vendor data, shows a preview,
  * and sends a POST to /report/generate on the RAG backend to download a PDF.
  *
  * Props:
- *   invoices   — full audited invoice array from Supabase
- *   vendors    — vendor registry array
- *   client     — string client name (from app state or user input)
+ *   invoices   â full audited invoice array from Supabase
+ *   vendors    â vendor registry array
+ *   client     â string client name (from app state or user input)
  */
 
 import { useState, useMemo } from 'react';
@@ -16,14 +16,14 @@ import { calc } from '../lib/engine';
 
 const RAG_URL = process.env.NEXT_PUBLIC_RAILWAY_URL;
 
-// ── Dollar formatter ──────────────────────────────────────────────────────────
-const f$ = (n) => n != null ? '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
-const fRate = (n) => n != null ? '$' + Number(n).toFixed(2) + '/hr' : '—';
+// ââ Dollar formatter ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+const f$ = (n) => n != null ? '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }) : 'â';
+const fRate = (n) => n != null ? '$' + Number(n).toFixed(2) + '/hr' : 'â';
 
-// ── Derive top findings from flagged invoices ─────────────────────────────────
+// ââ Derive top findings from flagged invoices âââââââââââââââââââââââââââââââââ
 function computeFindings(invoices, vendors) {
   const findings = [];
-  // calc() populates rate, impliedHrs, varDollars — required for dollar impact estimates
+  // calc() populates rate, impliedHrs, varDollars â required for dollar impact estimates
   const calcedInvoices = invoices.map(inv => calc(inv, vendors));
 
   calcedInvoices.forEach(inv => {
@@ -42,45 +42,45 @@ function computeFindings(invoices, vendors) {
         const delta        = billedRate != null && contractRate != null ? billedRate - contractRate : null;
         const impliedHrs   = billedRate && inv.labor ? inv.labor / billedRate : null;
         const exposure     = delta != null && impliedHrs != null ? delta * impliedHrs : null;
-        title        = `Rate Overcharge — ${inv.vendor}`;
+        title        = `Rate Overcharge â ${inv.vendor}`;
         evidence     = `Invoice ${inv.id}: billed ${fRate(billedRate)} vs contract ${fRate(contractRate)}` +
                        (delta != null ? `, delta +${fRate(delta)}` : '') +
                        (impliedHrs != null ? ` over ${impliedHrs.toFixed(1)} hrs implied.` : '.');
         dollarImpact = exposure || Math.round(total * 0.08);
       } else if (flag === 'ENG-LABOR-HEAVY') {
         const pct = total > 0 ? Math.round(inv.labor / total * 100) : 0;
-        title        = `Excessive Labor Billing — ${inv.vendor}`;
+        title        = `Excessive Labor Billing â ${inv.vendor}`;
         evidence     = `Invoice ${inv.id}: labor ${f$(inv.labor)} = ${pct}% of total ${f$(total)}. ` +
-                       `Expected hours ${inv.expectedHoursLow}–${inv.expectedHoursHigh}h; implied ${inv.impliedHrs?.toFixed(1) || '?'}h.`;
+                       `Expected hours ${inv.expectedHoursLow}â${inv.expectedHoursHigh}h; implied ${inv.impliedHrs?.toFixed(1) || '?'}h.`;
         dollarImpact = inv.varDollars ? Math.abs(Math.round(inv.varDollars)) : Math.round(inv.labor * 0.25);
       } else if (flag === 'ENG-TRAVEL') {
-        title        = `Unauthorized Travel Charge — ${inv.vendor}`;
+        title        = `Unauthorized Travel Charge â ${inv.vendor}`;
         evidence     = `Invoice ${inv.id}: separate travel/truck line detected. Per vendor agreement, ` +
-                       `travel is blended into hourly rate — no separate charge permitted.`;
+                       `travel is blended into hourly rate â no separate charge permitted.`;
         dollarImpact = Math.round(total * 0.05) || 150;
       } else if (flag === 'ENG-FEE') {
-        title        = `Unauthorized Fee — ${inv.vendor}`;
+        title        = `Unauthorized Fee â ${inv.vendor}`;
         evidence     = `Invoice ${inv.id}: environmental surcharge, shop supplies, or fuel surcharge detected. ` +
                        `Vendor agreement is silent on these charges.`;
         dollarImpact = Math.round(total * 0.03) || 100;
       } else if (flag === 'ENG-MISDIAG') {
-        title        = `Misdiagnosis / Rework — ${inv.vendor}`;
+        title        = `Misdiagnosis / Rework â ${inv.vendor}`;
         evidence     = `Invoice ${inv.id}: multiple visits indicate failed first repair. ` +
                        `${inv.visits || 2} visits billed for same equipment issue.`;
         dollarImpact = inv.visits > 1 ? Math.round(inv.labor / inv.visits) : Math.round(inv.labor * 0.4);
       } else if (flag === 'ENG-STAT-LABOR') {
-        title        = `Statistical Labor Outlier — ${inv.vendor}`;
+        title        = `Statistical Labor Outlier â ${inv.vendor}`;
         evidence     = `Invoice ${inv.id}: labor ${f$(inv.labor)} is a statistical outlier vs peer invoices ` +
                        `for ${inv.category || 'this category'}.`;
         dollarImpact = inv.varDollars ? Math.abs(Math.round(inv.varDollars)) : Math.round(inv.labor * 0.2);
       } else if (flag === 'ENG-MULTI-RATE') {
-        title        = `Multiple Rate Types — ${inv.vendor}`;
+        title        = `Multiple Rate Types â ${inv.vendor}`;
         evidence     = `Invoice ${inv.id}: mixed resident/non-resident techs or rates detected. ` +
                        `Cannot verify blended rate against single contract tier.`;
         dollarImpact = Math.round(total * 0.06) || 200;
       } else {
         // Generic catch-all for other ENG- flags
-        title        = `${flag.replace('ENG-', '').replace(/-/g, ' ')} — ${inv.vendor}`;
+        title        = `${flag.replace('ENG-', '').replace(/-/g, ' ')} â ${inv.vendor}`;
         evidence     = `Invoice ${inv.id}: ${inv.flagNotes?.split('|')[0]?.replace('[ENG]', '').trim() || 'See engine notes.'}`;
         dollarImpact = Math.round(total * 0.05) || 100;
       }
@@ -112,7 +112,7 @@ function computeFindings(invoices, vendors) {
   return deduped;
 }
 
-// ── Build rate benchmark rows from vendor registry + invoices ─────────────────
+// ââ Build rate benchmark rows from vendor registry + invoices âââââââââââââââââ
 function computeBenchmarks(invoices, vendors) {
   const vendorGroups = {};
   // Run calc() with vendors so rate/impliedHrs are populated before grouping
@@ -131,7 +131,7 @@ function computeBenchmarks(invoices, vendors) {
       : null;
     const contractRate = regEntry?.labor_rate ? parseFloat(regEntry.labor_rate) : null;
     const variance    = avgBilled != null && contractRate != null ? avgBilled - contractRate : null;
-    const status      = variance == null ? '—'
+    const status      = variance == null ? 'â'
       : variance > 2 ? 'OVER' : variance < -2 ? 'UNDER' : 'OK';
 
     return {
@@ -146,7 +146,7 @@ function computeBenchmarks(invoices, vendors) {
   }).sort((a, b) => (b.variance || 0) - (a.variance || 0));
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ââ Main component ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 export default function ReportPanel({ invoices = [], vendors = [], client: defaultClient = '', onSnapshotSave }) {
   const [client, setClient]           = useState(defaultClient || 'Ferrous Process & Trading');
   const [dateStart, setDateStart]     = useState('');
@@ -191,9 +191,10 @@ export default function ReportPanel({ invoices = [], vendors = [], client: defau
         benchmarks,
       };
 
+      const apiKey = process.env.NEXT_PUBLIC_INGEST_API_KEY;
       const res = await fetch(`${RAG_URL}/report/generate`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'x-api-key': apiKey } : {}) },
         body:    JSON.stringify(payload),
       });
 
@@ -214,7 +215,7 @@ export default function ReportPanel({ invoices = [], vendors = [], client: defau
       document.body.removeChild(anchor);
       URL.revokeObjectURL(url);
 
-      // Audit snapshot — record what findings existed at export time
+      // Audit snapshot â record what findings existed at export time
       // This is the defensible record: "at the time of delivery, these were the findings"
       const snapshot = {
         exportedAt:    new Date().toISOString(),
@@ -252,10 +253,10 @@ export default function ReportPanel({ invoices = [], vendors = [], client: defau
     }
   }
 
-  // ── UI ────────────────────────────────────────────────────────────────────
+  // ââ UI ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
   const statusBadge = (status) => {
-    const map = { OVER: '#dc2626', OK: '#15803d', UNDER: '#1d4ed8', '—': '#64748b' };
+    const map = { OVER: '#dc2626', OK: '#15803d', UNDER: '#1d4ed8', 'â': '#64748b' };
     return (
       <span style={{
         background: map[status] || '#64748b',
@@ -275,7 +276,7 @@ export default function ReportPanel({ invoices = [], vendors = [], client: defau
             Cost Intelligence Brief
           </h2>
           <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 0' }}>
-            Tier 1 client deliverable · {invoices.length} invoices · {flaggedCount} flagged
+            Tier 1 client deliverable Â· {invoices.length} invoices Â· {flaggedCount} flagged
           </p>
         </div>
         <button
@@ -292,28 +293,28 @@ export default function ReportPanel({ invoices = [], vendors = [], client: defau
           {generating ? (
             <>
               <span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-              Generating…
+              Generatingâ¦
             </>
           ) : (
-            <>📄 Export PDF Report</>
+            <>ð Export PDF Report</>
           )}
         </button>
       </div>
 
       {!RAG_URL && (
         <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#92400e' }}>
-          ⚠️ NEXT_PUBLIC_RAILWAY_URL not set — PDF generation requires the RAG backend.
+          â ï¸ NEXT_PUBLIC_RAILWAY_URL not set â PDF generation requires the RAG backend.
         </div>
       )}
       {lastExport && (
         <div style={{ background: '#f0fdf4', border: '1px solid #16a34a', borderRadius: 6, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#15803d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>✅ Report exported {lastExport.date} — {lastExport.findingCount} findings, {f$(lastExport.exposure)} exposure</span>
+          <span>â Report exported {lastExport.date} â {lastExport.findingCount} findings, {f$(lastExport.exposure)} exposure</span>
           <span style={{ fontSize: 11, color: '#64748b' }}>{lastExport.filename}</span>
         </div>
       )}
       {error && (
         <div style={{ background: '#fee2e2', border: '1px solid #dc2626', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#991b1b' }}>
-          ❌ {error}
+          â {error}
         </div>
       )}
 
@@ -371,8 +372,8 @@ export default function ReportPanel({ invoices = [], vendors = [], client: defau
         onClick={() => setPreviewOpen(o => !o)}
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', marginBottom: 12, userSelect: 'none' }}
       >
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#1a2744' }}>Report Preview {previewOpen ? '▲' : '▼'}</span>
-        <span style={{ fontSize: 12, color: '#64748b' }}>{topFindings.length} finding{topFindings.length !== 1 ? 's' : ''} · {benchmarks.length} vendor{benchmarks.length !== 1 ? 's' : ''}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#1a2744' }}>Report Preview {previewOpen ? 'â²' : 'â¼'}</span>
+        <span style={{ fontSize: 12, color: '#64748b' }}>{topFindings.length} finding{topFindings.length !== 1 ? 's' : ''} Â· {benchmarks.length} vendor{benchmarks.length !== 1 ? 's' : ''}</span>
       </div>
 
       {previewOpen && (
@@ -397,7 +398,7 @@ export default function ReportPanel({ invoices = [], vendors = [], client: defau
                       <td style={{ padding: '7px 10px' }}>{fRate(row.billedRate)}</td>
                       <td style={{ padding: '7px 10px' }}>{fRate(row.contractRate)}</td>
                       <td style={{ padding: '7px 10px', fontWeight: row.variance != null && Math.abs(row.variance) > 2 ? 700 : 400, color: row.variance > 2 ? '#dc2626' : row.variance < -2 ? '#1d4ed8' : '#64748b' }}>
-                        {row.variance != null ? (row.variance > 0 ? '+' : '') + fRate(row.variance) : '—'}
+                        {row.variance != null ? (row.variance > 0 ? '+' : '') + fRate(row.variance) : 'â'}
                       </td>
                       <td style={{ padding: '7px 10px' }}>{statusBadge(row.status)}</td>
                     </tr>
@@ -421,7 +422,7 @@ export default function ReportPanel({ invoices = [], vendors = [], client: defau
                     <span style={{ fontSize: 15, fontWeight: 800, color: '#dc2626', whiteSpace: 'nowrap' }}>{f$(f.dollarImpact)}</span>
                   </div>
                   <div style={{ fontSize: 11, color: '#64748b', marginBottom: 5 }}>
-                    {[f.invoiceId && `Invoice: ${f.invoiceId}`, f.category && `Category: ${f.category}`].filter(Boolean).join(' · ')}
+                    {[f.invoiceId && `Invoice: ${f.invoiceId}`, f.category && `Category: ${f.category}`].filter(Boolean).join(' Â· ')}
                   </div>
                   <div style={{ fontSize: 12, color: '#334155' }}>{f.evidence}</div>
                 </div>
