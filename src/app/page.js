@@ -152,14 +152,14 @@ const RESOLUTION_META  = {
   CREDITED: { label: "Credited",  color: "#2563eb", bg: "#2563eb12" },
 };
 
-function InvoiceTable({ data, onSaveResolution }) {
+function InvoiceTable({ data, vendors = [], onSaveResolution }) {
   const [exp,    setExp]    = useState(null);
   const [filt,   setFilt]   = useState("all");
   const [sortBy, setSortBy] = useState("flags"); // "flags" | "date" | "total"
 
-  // Memoized — only recomputes when the invoice data actually changes.
-  // Prevents calc() running on every React render (was O(n) per render).
-  const c  = useMemo(() => data.map(calc), [data]);
+  // Memoized — vendors MUST be passed for rate/impliedHrs to compute.
+  // Without vendors, calc() returns rate=null → benchmark shows "—" and exposure=$0.
+  const c  = useMemo(() => data.map(inv => calc(inv, vendors)), [data, vendors]);
   const bl = useMemo(() => buildBaselines(data), [data]);
 
   // Progressive disclosure: apply filter, then sort flagged to top by default
@@ -313,8 +313,9 @@ function InvoiceTable({ data, onSaveResolution }) {
   </div>;
 }
 
-function EquipmentView({ data }) {
-  const c = data.map(calc); const eq = {};
+function EquipmentView({ data, vendors = [] }) {
+  const c = useMemo(() => data.map(inv => calc(inv, vendors)), [data, vendors]);
+  const eq = {};
   c.forEach(i => { if (!eq[i.unitId]) eq[i.unitId] = { id: i.unitId, equip: i.equipment, sn: i.sn, meter: i.meter, site: i.site, invs: [], spend: 0, cats: new Set(), vendors: new Set() }; const e = eq[i.unitId]; e.invs.push(i); e.spend += i.total; e.cats.add(i.category); e.vendors.add(i.vendor); e.meter = Math.max(e.meter, i.meter); });
   const riskColors = { CRITICAL: "#dc2626", HIGH: "#ea580c", ELEVATED: "#d97706", MODERATE: "#4a7fd4", LOW: "#22813D", "INSUFFICIENT DATA": "#8b919e" };
   return <div style={{ display: "grid", gap: 10 }}>
@@ -911,8 +912,8 @@ export default function App() {
     <div style={{ padding: "16px 20px", maxWidth: 1400, margin: "0 auto" }}>
       {!loaded ? <div style={{ textAlign: "center", padding: 40, color: S.dim }}>Loading...</div> :
         tab === "Dashboard"     ? <Dashboard data={filteredInvoices} txns={filteredTxns} activeClient={activeClient} /> :
-        tab === "Invoices"      ? <InvoiceTable data={filteredInvoices} onSaveResolution={handleSaveResolution} /> :
-        tab === "Equipment"     ? <EquipmentView data={filteredInvoices} /> :
+        tab === "Invoices"      ? <InvoiceTable data={filteredInvoices} vendors={vendors} onSaveResolution={handleSaveResolution} /> :
+        tab === "Equipment"     ? <EquipmentView data={filteredInvoices} vendors={vendors} /> :
         tab === "Transactions"  ? <TransactionsView txns={filteredTxns} /> :
         tab === "Vendors"       ? <VendorPanel vendors={vendors} onSave={handleSaveVendor} /> :
         tab === "Report"        ? <ReportPanel invoices={filteredInvoices} vendors={vendors} client={activeClient || "Ferrous Process & Trading"} onSnapshotSave={saveReportSnapshot} /> :

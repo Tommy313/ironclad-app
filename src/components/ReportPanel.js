@@ -12,6 +12,7 @@
  */
 
 import { useState, useMemo } from 'react';
+import { calc } from '../lib/engine';
 
 const RAG_URL = process.env.NEXT_PUBLIC_RAILWAY_URL;
 
@@ -22,8 +23,10 @@ const fRate = (n) => n != null ? '$' + Number(n).toFixed(2) + '/hr' : '—';
 // ── Derive top findings from flagged invoices ─────────────────────────────────
 function computeFindings(invoices, vendors) {
   const findings = [];
+  // calc() populates rate, impliedHrs, varDollars — required for dollar impact estimates
+  const calcedInvoices = invoices.map(inv => calc(inv, vendors));
 
-  invoices.forEach(inv => {
+  calcedInvoices.forEach(inv => {
     const flags = (inv.flags || []).filter(f => f.startsWith('ENG-'));
     if (flags.length === 0) return;
 
@@ -112,7 +115,9 @@ function computeFindings(invoices, vendors) {
 // ── Build rate benchmark rows from vendor registry + invoices ─────────────────
 function computeBenchmarks(invoices, vendors) {
   const vendorGroups = {};
-  invoices.forEach(inv => {
+  // Run calc() with vendors so rate/impliedHrs are populated before grouping
+  const calcedInvoices = invoices.map(inv => calc(inv, vendors));
+  calcedInvoices.forEach(inv => {
     if (!inv.vendor) return;
     if (!vendorGroups[inv.vendor]) vendorGroups[inv.vendor] = [];
     vendorGroups[inv.vendor].push(inv);
