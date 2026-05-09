@@ -3,10 +3,10 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "../lib/supabase-browser";
 
-// ── Engine version — bump when engine logic changes ───────────────────────────
+// ââ Engine version â bump when engine logic changes âââââââââââââââââââââââââââ
 const ENGINE_VERSION = "v1.3";
 
-// ── Error boundary ────────────────────────────────────────────────────────────
+// ââ Error boundary ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
@@ -15,7 +15,7 @@ class ErrorBoundary extends React.Component {
     if (!this.state.error) return this.props.children;
     return (
       <div style={{ padding: 40, textAlign: "center", fontFamily: "sans-serif" }}>
-        <div style={{ fontSize: 32, marginBottom: 16 }}>⚠️</div>
+        <div style={{ fontSize: 32, marginBottom: 16 }}>â ï¸</div>
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: "#1a2744" }}>Something went wrong</div>
         <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20, maxWidth: 400, margin: "0 auto 20px" }}>{this.state.error.message}</div>
         <button onClick={() => this.setState({ error: null })} style={{ padding: "10px 24px", background: "#1a2744", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 700 }}>Try again</button>
@@ -25,7 +25,7 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// ── Extracted view components ─────────────────────────────────────────────────
+// ââ Extracted view components âââââââââââââââââââââââââââââââââââââââââââââââââ
 import Dashboard from "../components/views/Dashboard";
 import InvoiceTableView from "../components/views/InvoiceTable";
 import EquipmentView from "../components/views/EquipmentView";
@@ -62,9 +62,9 @@ function DataTab({ data, txns, onExport, onReset, count, txnCount }) {
       <Stat label="Machines" value={[...new Set(data.map(i => i.unitId))].length} color={S.accent} />
     </div>
     <div style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "center" }}>
-      <button onClick={onExport} className="ic-btn" style={{ padding: "10px 22px", background: S.accent, color: "#fff", border: "none", borderRadius: 20, cursor: "pointer", fontWeight: 700, fontSize: 12, boxShadow: "0 2px 8px rgba(74,127,212,0.25)", transition: "all .15s" }}>⬇ Export All (JSON)</button>
+      <button onClick={onExport} className="ic-btn" style={{ padding: "10px 22px", background: S.accent, color: "#fff", border: "none", borderRadius: 20, cursor: "pointer", fontWeight: 700, fontSize: 12, boxShadow: "0 2px 8px rgba(74,127,212,0.25)", transition: "all .15s" }}>â¬ Export All (JSON)</button>
       {!confirmReset
-        ? <button onClick={() => setConfirmReset(true)} className="ic-btn" style={{ padding: "10px 22px", background: "#dc262610", color: "#dc2626", border: "1.5px solid #dc262630", borderRadius: 20, cursor: "pointer", fontWeight: 700, fontSize: 12 }}>↺ Reset to Seed Data</button>
+        ? <button onClick={() => setConfirmReset(true)} className="ic-btn" style={{ padding: "10px 22px", background: "#dc262610", color: "#dc2626", border: "1.5px solid #dc262630", borderRadius: 20, cursor: "pointer", fontWeight: 700, fontSize: 12 }}>âº Reset to Seed Data</button>
         : <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", background: "#dc262608", border: "1.5px solid #dc262625", borderRadius: 14 }}>
             <span style={{ fontSize: 11, color: "#dc2626", fontWeight: 600 }}>Delete all added data and reset?</span>
             <button onClick={() => { onReset(); setConfirmReset(false); }} className="ic-btn" style={{ padding: "6px 16px", background: "#dc2626", color: "#fff", border: "none", borderRadius: 16, cursor: "pointer", fontWeight: 700, fontSize: 11, transition: "all .15s" }}>Yes, Reset</button>
@@ -81,8 +81,8 @@ function DataTab({ data, txns, onExport, onReset, count, txnCount }) {
           <td style={{ padding: "4px 8px", fontFamily: "monospace", color: S.accent }}>{d.id}</td>
           <td style={{ padding: "4px 8px", color: S.text }}>{d.vendor}</td>
           <td style={{ padding: "4px 8px", color: S.dim }}>{d.equipment}</td>
-          <td style={{ padding: "4px 8px", color: d.agreement === "resident" ? "#16a34a" : S.dim }}>{d.agreement || "—"}</td>
-          <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>{c.rate ? "$" + c.rate : "—"}</td>
+          <td style={{ padding: "4px 8px", color: d.agreement === "resident" ? "#16a34a" : S.dim }}>{d.agreement || "â"}</td>
+          <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>{c.rate ? "$" + c.rate : "â"}</td>
           <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: S.bright }}>{f$(c.total)}</td>
         </tr>; })}
       </tbody></table>
@@ -99,7 +99,7 @@ function DataTab({ data, txns, onExport, onReset, count, txnCount }) {
           <td style={{ padding: "4px 8px", color: S.text }}>{t.equipment}</td>
           <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>{t.quantity}</td>
           <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: S.bright }}>{f$(t.totalPrice)}</td>
-          <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: t.spread >= 0 ? "#16a34a" : "#d97706" }}>{t.spread != null ? f$(t.spread) : "—"}</td>
+          <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: t.spread >= 0 ? "#16a34a" : "#d97706" }}>{t.spread != null ? f$(t.spread) : "â"}</td>
         </tr>)}
       </tbody></table>
     </div>
@@ -118,7 +118,7 @@ export default function App() {
   const router = useRouter();
   const supabaseBrowser = createSupabaseBrowser();
 
-  // ── Auth state ────────────────────────────────────────────────────────────
+  // ââ Auth state ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const [user, setUser] = useState(null);
 
   useEffect(() => {
@@ -146,7 +146,7 @@ export default function App() {
   const [activeClient, setActiveClient] = useState("all");
   const [clients, setClients] = useState(["Ferrous"]);
 
-  // Benchmark clients — hidden from the audit client dropdown.
+  // Benchmark clients â hidden from the audit client dropdown.
   // Their data still powers engine calculations and AI context behind the scenes.
   // Accessible via the gear menu for internal testing.
   const BENCHMARK_CLIENTS = ['Ferrous'];
@@ -162,14 +162,14 @@ export default function App() {
   const [showAdminMenu, setShowAdminMenu] = useState(false);
   const [usingSupabase, setUsingSupabase] = useState(false);
 
-  // ── Data loading: Supabase primary, localStorage fallback ─────────────────
+  // ââ Data loading: Supabase primary, localStorage fallback âââââââââââââââââ
   useEffect(() => {
     (async () => {
       const sbReady = isSupabaseConfigured();
       setUsingSupabase(sbReady);
 
       if (sbReady) {
-        // ── Supabase path ───────────────────────────────────────────────────
+        // ââ Supabase path âââââââââââââââââââââââââââââââââââââââââââââââââââ
         try {
           const [dbInvoices, dbTxns, dbClients, dbVendors] = await Promise.all([
             getAllClientInvoices(),
@@ -202,7 +202,7 @@ export default function App() {
       }
 
       if (!sbReady) {
-        // ── localStorage fallback path ──────────────────────────────────────
+        // ââ localStorage fallback path ââââââââââââââââââââââââââââââââââââââ
         try {
           const r = await store.get(STORAGE_KEY);
           if (r?.value) { const p = JSON.parse(r.value); if (Array.isArray(p) && p.length > 0) { setInvoices(p); setSC(p.length); } else { await store.set(STORAGE_KEY, JSON.stringify(SEED_INVOICES)); setSC(SEED_INVOICES.length); } }
@@ -269,7 +269,7 @@ export default function App() {
     setTC(SEED_TRANSACTIONS.length);
   };
 
-  // Resolution status handler — stores DISPUTED / RESOLVED / CREDITED as manual flags
+  // Resolution status handler â stores DISPUTED / RESOLVED / CREDITED as manual flags
   // Manual flags are never overwritten by the engine, so status persists through re-audits.
   const handleSaveResolution = async (invoice, resolutionFlag) => {
     const currentManual = (invoice.flags || []).filter(f => !f.startsWith("ENG-") && !["DISPUTED","RESOLVED","CREDITED"].includes(f));
@@ -286,11 +286,11 @@ export default function App() {
     });
   };
 
-  // Derive client_id slug from a name — matches the format used in the clients SQL table
+  // Derive client_id slug from a name â matches the format used in the clients SQL table
   const toClientId = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
   const handleIngest = async (record) => {
-    // Enforce client FK — stamp client_id on every saved invoice
+    // Enforce client FK â stamp client_id on every saved invoice
     const clientName = activeClient !== "all" ? activeClient : (record.client || "Ferrous");
     const withClient = { ...record, client: clientName, client_id: toClientId(clientName) };
     const audited = runAuditFlags(withClient, invoices, vendors);
@@ -308,7 +308,7 @@ export default function App() {
     });
   };
 
-  // Batch import — NEVER overwrites existing records. Skips any ID already in DB.
+  // Batch import â NEVER overwrites existing records. Skips any ID already in DB.
   const handleBatchIngest = async (record) => {
     const clientName = activeClient !== "all" ? activeClient : (record.client || "Ferrous");
     const withClient = { ...record, client: clientName, client_id: toClientId(clientName) };
@@ -326,9 +326,30 @@ export default function App() {
     });
   };
 
-  // Re-audit all existing invoices — updates ENG- flags in Supabase with current baselines.
+  // Re-audit all existing invoices â updates ENG- flags in Supabase with current baselines.
   // Run this once after initial data load, or whenever the vendor rate table changes.
   // Does NOT re-run automatically on page load.
+
+  // Auto Re-Audit when client changes + engine version is newer than last audit
+  // Runs silently in background — no confirm dialog, no manual trigger needed
+  useEffect(() => {
+    if (!loaded || !usingSupabase || activeClient === "all" || vendors.length === 0) return;
+    const key = `ironclad_last_audit_${activeClient}`;
+    const lastVersion = localStorage.getItem(key);
+    if (lastVersion === ENGINE_VERSION) return; // already current
+    // Run silent re-audit for this client
+    (async () => {
+      const clientInvoices = invoices.filter(i => (i.client || "Ferrous") === activeClient);
+      if (clientInvoices.length === 0) return;
+      const baselines = buildBaselines(clientInvoices, undefined, vendors);
+      const reaudited = clientInvoices.map(inv => runAuditFlags(inv, clientInvoices, vendors, baselines));
+      for (const inv of reaudited) await saveClientInvoice(inv);
+      setInvoices(prev => prev.map(p => reaudited.find(r => r.id === p.id) || p));
+      localStorage.setItem(key, ENGINE_VERSION);
+      console.log(`[auto-audit] ${activeClient} updated to ${ENGINE_VERSION}`);
+    })();
+  }, [activeClient, loaded, vendors.length]);
+
   const [reauditProgress, setReauditProgress] = useState(null); // null | { done, total }
 
   const handleReauditAll = async () => {
@@ -336,7 +357,7 @@ export default function App() {
     const count = filteredInvoices.length;
     if (!confirm(`Re-audit all ${count} invoices with the current engine?\n\nThis updates stored flags in Supabase. Manual flags are preserved.`)) return;
 
-    // Compute baselines ONCE — avoids O(n²) recomputation on large datasets
+    // Compute baselines ONCE â avoids O(nÂ²) recomputation on large datasets
     const baselines = buildBaselines(filteredInvoices, undefined, vendors);
     const reaudited = filteredInvoices.map(inv => runAuditFlags(inv, filteredInvoices, vendors, baselines));
 
@@ -358,7 +379,7 @@ export default function App() {
       return updated;
     });
     setReauditProgress(null);
-    alert(`Re-audit complete — ${reaudited.length} invoices updated.`);
+    alert(`Re-audit complete â ${reaudited.length} invoices updated.`);
   };
 
   // Client-filtered data
@@ -372,27 +393,27 @@ export default function App() {
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ width: 30, height: 30, borderRadius: 10, background: `linear-gradient(135deg,${S.accent},#3a6ab8)`, boxShadow: "0 2px 6px rgba(74,127,212,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 900, color: "#fff" }}>I</div>
         <div><div style={{ fontSize: 13, fontWeight: 700, letterSpacing: .5 }}>IRONCLAD FLEET INTELLIGENCE</div>
-          <div style={{ fontSize: 8, color: S.dim, letterSpacing: 1.2, textTransform: "uppercase" }}>Scrap · Demolition · Recycling</div></div>
+          <div style={{ fontSize: 8, color: S.dim, letterSpacing: 1.2, textTransform: "uppercase" }}>Scrap Â· Demolition Â· Recycling</div></div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 9, color: S.dim, textTransform: "uppercase", letterSpacing: .5 }}>Client:</span>
           <select value={activeClient} onChange={e => setActiveClient(e.target.value)}
             style={{ background: isBenchmarkMode ? "#d9770610" : S.card, border: `1.5px solid ${isBenchmarkMode ? S.yellow : activeClient !== "all" ? S.accent : S.border}`, borderRadius: 10, color: isBenchmarkMode ? S.yellow : activeClient !== "all" ? S.accent : S.text, fontSize: 11, padding: "4px 8px", outline: "none", fontWeight: 600, cursor: "pointer" }}>
-            <option value="all">— Select Client —</option>
+            <option value="all">â Select Client â</option>
             {auditClients.map(c => <option key={c} value={c}>{c} ({invoices.filter(i => (i.client || "Ferrous") === c).length})</option>)}
-            {isBenchmarkMode && <option value={activeClient}>{activeClient} ★ Benchmark</option>}
+            {isBenchmarkMode && <option value={activeClient}>{activeClient} â Benchmark</option>}
           </select>
-          {isBenchmarkMode && <span style={{ fontSize: 9, fontWeight: 700, color: S.yellow, textTransform: "uppercase", letterSpacing: .5 }}>★ Benchmark Mode</span>}
-          <button onClick={() => setShowClientAdd(!showClientAdd)} className="ic-btn" style={{ padding: "4px 12px", background: showClientAdd ? "#dc2626" : S.accent + "10", border: `1.5px solid ${showClientAdd ? "#dc2626" : S.accent}30`, borderRadius: 16, color: showClientAdd ? "#fff" : S.accent, fontSize: 10, cursor: "pointer", fontWeight: 700 }}>{showClientAdd ? "×" : "+ New"}</button>
-          <button onClick={() => setShowOnboarding(true)} className="ic-btn" style={{ padding: "6px 16px", background: "#c8972b", color: "#fff", border: "none", borderRadius: 16, fontSize: 11, cursor: "pointer", fontWeight: 800, boxShadow: "0 2px 6px rgba(200,151,43,0.35)", marginLeft: 8, letterSpacing: 0.3 }}>★ New Audit</button>
-          <button onClick={() => setShowIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: S.accent, color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(74,127,212,0.25)", marginLeft: 4 }}>📄 Ingest</button>
-          <button onClick={() => setShowBatchIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: "#16a34a", color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(22,163,74,0.25)" }}>📂 Batch</button>
+          {isBenchmarkMode && <span style={{ fontSize: 9, fontWeight: 700, color: S.yellow, textTransform: "uppercase", letterSpacing: .5 }}>â Benchmark Mode</span>}
+          <button onClick={() => setShowClientAdd(!showClientAdd)} className="ic-btn" style={{ padding: "4px 12px", background: showClientAdd ? "#dc2626" : S.accent + "10", border: `1.5px solid ${showClientAdd ? "#dc2626" : S.accent}30`, borderRadius: 16, color: showClientAdd ? "#fff" : S.accent, fontSize: 10, cursor: "pointer", fontWeight: 700 }}>{showClientAdd ? "Ã" : "+ New"}</button>
+          <button onClick={() => setShowOnboarding(true)} className="ic-btn" style={{ padding: "6px 16px", background: "#c8972b", color: "#fff", border: "none", borderRadius: 16, fontSize: 11, cursor: "pointer", fontWeight: 800, boxShadow: "0 2px 6px rgba(200,151,43,0.35)", marginLeft: 8, letterSpacing: 0.3 }}>â New Audit</button>
+          <button onClick={() => setShowIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: S.accent, color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(74,127,212,0.25)", marginLeft: 4 }}>ð Ingest</button>
+          <button onClick={() => setShowBatchIngest(true)} className="ic-btn" style={{ padding: "6px 14px", background: "#16a34a", color: "#fff", border: "none", borderRadius: 16, fontSize: 10, cursor: "pointer", fontWeight: 700, boxShadow: "0 2px 6px rgba(22,163,74,0.25)" }}>ð Batch</button>
         </div>
         <div style={{ fontSize: 10, color: S.dim, textAlign: "right" }}>
-          <div>{filteredInvoices.length} invoices · {filteredTxns.length} deals | {f$(tot)} R&M</div>
+          <div>{filteredInvoices.length} invoices Â· {filteredTxns.length} deals | {f$(tot)} R&M</div>
           <div style={{ color: usingSupabase ? "#16a34a" : "#d97706", fontSize: 9 }}>
-            ● {usingSupabase ? `Engine ${ENGINE_VERSION} — Supabase · Auth · RAG` : `Engine ${ENGINE_VERSION} — Local mode`}
+            â {usingSupabase ? `Engine ${ENGINE_VERSION} â Supabase Â· Auth Â· RAG` : `Engine ${ENGINE_VERSION} â Local mode`}
           </div>
         </div>
         {/* Admin gear menu */}
@@ -401,30 +422,30 @@ export default function App() {
             onClick={() => setShowAdminMenu(v => !v)}
             style={{ background: "transparent", border: `1px solid ${S.border}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 14, color: S.dim, lineHeight: 1 }}
             title="Admin"
-          >⚙</button>
+          >â</button>
           {showAdminMenu && <>
             <div onClick={() => setShowAdminMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
             <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", background: S.card, border: `1px solid ${S.border}`, borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.1)", zIndex: 300, minWidth: 200, overflow: "hidden" }}>
               <div style={{ padding: "8px 14px", fontSize: 9, color: S.dim, textTransform: "uppercase", letterSpacing: 1, borderBottom: `1px solid ${S.border}` }}>Admin</div>
               <div style={{ padding: "4px 0" }}>
-                <button onClick={handleExport} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: S.text, cursor: "pointer" }}>⬇ Export All Data (JSON)</button>
+                <button onClick={handleExport} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: S.text, cursor: "pointer" }}>â¬ Export All Data (JSON)</button>
                 <div style={{ height: 1, background: S.border, margin: "4px 14px" }} />
                 {BENCHMARK_CLIENTS.map(bc => (
                   <button key={bc} onClick={() => { setActiveClient(bc); setShowAdminMenu(false); }}
                     style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: S.yellow, cursor: "pointer" }}>
-                    ★ View Benchmark Data ({bc})
+                    â View Benchmark Data ({bc})
                   </button>
                 ))}
                 <div style={{ height: 1, background: S.border, margin: "4px 14px" }} />
-                <button onClick={handleReauditAll} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#d97706", cursor: "pointer", fontWeight: 600 }}>⚡ Re-Audit All Invoices</button>
-                <button onClick={() => { if (confirm("Reset all data to seed invoices? This cannot be undone.")) handleReset(); }} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#dc2626", cursor: "pointer" }}>↺ Reset to Seed Data</button>
+                <button onClick={handleReauditAll} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#d97706", cursor: "pointer", fontWeight: 600 }}>â¡ Re-Audit All Invoices</button>
+                <button onClick={() => { if (confirm("Reset all data to seed invoices? This cannot be undone.")) handleReset(); }} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#dc2626", cursor: "pointer" }}>âº Reset to Seed Data</button>
                 <div style={{ height: 1, background: S.border, margin: "4px 14px" }} />
-                <button onClick={handleLogout} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#dc2626", cursor: "pointer", fontWeight: 600 }}>🔓 Sign Out</button>
+                <button onClick={handleLogout} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 12, color: "#dc2626", cursor: "pointer", fontWeight: 600 }}>ð Sign Out</button>
               </div>
               <div style={{ padding: "8px 14px", borderTop: `1px solid ${S.border}`, fontSize: 9, color: S.dim }}>
-                {usingSupabase ? "✓ Supabase connected" : "⚠ Supabase not configured"}<br />
-                {invoices.length} invoices · {txns.length} transactions · {clients.length} clients<br />
-                {user && <span style={{ color: "#16a34a" }}>● {user.email}</span>}
+                {usingSupabase ? "â Supabase connected" : "â  Supabase not configured"}<br />
+                {invoices.length} invoices Â· {txns.length} transactions Â· {clients.length} clients<br />
+                {user && <span style={{ color: "#16a34a" }}>â {user.email}</span>}
               </div>
             </div>
           </>}
@@ -433,7 +454,7 @@ export default function App() {
     </div>
     {reauditProgress && (
       <div style={{ padding: "8px 20px", background: "#d9770615", borderBottom: `1px solid #d9770640`, display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={{ fontSize: 11, color: "#d97706", fontWeight: 700 }}>⚡ Re-auditing invoices…</span>
+        <span style={{ fontSize: 11, color: "#d97706", fontWeight: 700 }}>â¡ Re-auditing invoicesâ¦</span>
         <div style={{ flex: 1, maxWidth: 200, height: 4, background: "#d9770630", borderRadius: 2 }}>
           <div style={{ height: "100%", width: `${Math.round(reauditProgress.done / reauditProgress.total * 100)}%`, background: "#d97706", borderRadius: 2, transition: "width 0.2s" }} />
         </div>
